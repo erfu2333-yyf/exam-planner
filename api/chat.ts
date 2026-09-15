@@ -47,12 +47,12 @@ export async function POST(request: Request): Promise<Response> {
   if (!question) return json({ error: "请先输入问题。" }, 400);
   if (!body.snapshot) return json({ error: "缺少当前计划。" }, 400);
 
-  const token = process.env.AI_GATEWAY_API_KEY?.trim() || process.env.VERCEL_OIDC_TOKEN?.trim();
+  const token = gatewayToken(request);
   if (!token) {
     return json(
       {
         error:
-          "还没配好模型密钥。请在 Vercel 项目里打开 AI Gateway，或添加环境变量 AI_GATEWAY_API_KEY。",
+          "还没配好模型密钥。请在 Vercel 项目设置里打开 OIDC，或添加环境变量 AI_GATEWAY_API_KEY。",
       },
       503,
     );
@@ -122,6 +122,15 @@ function json(payload: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8" },
   });
+}
+
+function gatewayToken(request: Request): string | undefined {
+  return (
+    process.env.AI_GATEWAY_API_KEY?.trim() ||
+    request.headers.get("x-vercel-oidc-token")?.trim() ||
+    process.env.VERCEL_OIDC_TOKEN?.trim() ||
+    undefined
+  );
 }
 
 function gatewayHint(status: number, raw: string): string {
