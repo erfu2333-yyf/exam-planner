@@ -103,8 +103,8 @@ export function AiPanel({
         throw new Error(payload.error || "发送失败");
       }
       const fallbackNote =
-        payload.model && payload.model !== "spacexai/grok-4.6"
-          ? "\n\n（Grok 4.6 当前额度不可用，这次用了免费备用模型。开通 Vercel AI Gateway 额度后会自动切回。）"
+        payload.model && payload.model !== "alibaba/qwen3.7-plus"
+          ? "\n\n（Qwen 3.7 Plus 这次没调用成功，用了备用模型。额度到账后会自动切回。）"
           : "";
       setMessages((current) => [
         ...current,
@@ -193,7 +193,7 @@ export function AiPanel({
       >
         <div>
           <div style={{ fontWeight: 700, fontSize: 16 }}>P人大救星</div>
-          <div className="small muted-3">Grok 4.6 · 建议需确认后才写入</div>
+          <div className="small muted-3">Qwen 3.7 Plus · 建议需确认后才写入</div>
         </div>
         <button
           type="button"

@@ -1,7 +1,7 @@
 import { generateText } from "ai";
 
-const MODEL = "spacexai/grok-4.6";
-const FALLBACK_MODEL = "poolside/laguna-s-2.1-free";
+const MODEL = "alibaba/qwen3.7-plus";
+const FALLBACK_MODEL = "alibaba/qwen3.7-flash";
 
 export const maxDuration = 60;
 

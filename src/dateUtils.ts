@@ -77,6 +77,15 @@ export function weekRangeLabel(week: number): string {
   return `${formatMD(weekStartKey(week))}–${formatMD(addDays(weekStartKey(week), 6))}`;
 }
 
+/** 总览表头用的简写，同月写成 10/1–7，跨月写成 9/26–10/2 */
+export function formatWeekSpan(week: number): string {
+  const from = parseKey(weekStartKey(week));
+  const to = parseKey(addDays(weekStartKey(week), 6));
+  const start = `${from.getMonth() + 1}/${from.getDate()}`;
+  if (from.getMonth() === to.getMonth()) return `${start}–${to.getDate()}`;
+  return `${start}–${to.getMonth() + 1}/${to.getDate()}`;
+}
+
 export function daysUntilExam(todayKey: string): number {
   return Math.max(0, diffDays(todayKey, EXAM_DATE));
 }

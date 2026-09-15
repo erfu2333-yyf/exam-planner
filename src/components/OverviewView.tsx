@@ -2,6 +2,7 @@ import {
   TOTAL_WEEKS,
   addDays,
   formatMD,
+  formatWeekSpan,
   weekStartKey,
 } from "../dateUtils";
 import { overlapsRange } from "../schedule";
@@ -231,7 +232,7 @@ function TimelineHeader() {
           <div className="small" style={{ fontWeight: 600 }}>
             {week + 1}
           </div>
-          <div className="small muted-3">{formatMD(weekStartKey(week))}</div>
+          <div className="small muted-3">{formatWeekSpan(week)}</div>
         </div>
       ))}
       <PhaseLines />

@@ -11,6 +11,7 @@ import {
 } from "./components/Editors";
 import { OverviewView } from "./components/OverviewView";
 import { WeekView } from "./components/WeekView";
+import { WorkspaceGate } from "./components/WorkspaceGate";
 import { Button, Callout, Modal, Pill } from "./components/ui";
 import {
   DEADLINE_LABEL,
@@ -27,6 +28,7 @@ import {
   weekOfIndex,
   weeksAndDays,
 } from "./dateUtils";
+import { planToMarkdown } from "./exportPlan";
 import {
   applyDailyHoursToDayPlans,
   dayPlanOf,
@@ -37,12 +39,16 @@ import {
 } from "./schedule";
 import { usePlanner } from "./storage";
 import type { DayEntry, PlannerData, Subject, Task, ViewKey } from "./types";
+import { siteHomeUrl, useWorkspace } from "./workspace";
 
 const LAST_DAY = keyFromIndex(TOTAL_DAYS - 1);
 
 export default function App() {
-  const { data, commit, update, undo, canUndo } = usePlanner();
+  const workspace = useWorkspace();
+  const { data, commit, update, undo, canUndo } = usePlanner(workspace.profile?.id ?? null);
   const [, setNow] = useState(() => Date.now());
+  const [exportText, setExportText] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const [view, setView] = useState<ViewKey>("overview");
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -311,6 +317,18 @@ export default function App() {
     setCarryoverDismissed(true);
   };
 
+  if (!workspace.profile) {
+    return (
+      <WorkspaceGate
+        profiles={workspace.profiles}
+        onCreate={workspace.create}
+        onOpen={workspace.open}
+      />
+    );
+  }
+
+  const ownerName = workspace.profile.name;
+
   return (
     <div style={{ maxWidth: 1480, margin: "0 auto", padding: "14px 16px 60px" }}>
       <header style={{ textAlign: "center", position: "relative", padding: "6px 0 14px" }}>
@@ -324,6 +342,15 @@ export default function App() {
           className="row small"
           style={{ position: "absolute", right: 0, top: 8, gap: 6 }}
         >
+          <Button
+            small
+            onClick={() => {
+              setCopied(false);
+              setExportText(planToMarkdown(data, ownerName));
+            }}
+          >
+            导出给 AI
+          </Button>
           <Button small disabled={!canUndo} onClick={undo} title="Ctrl+Z">
             撤销
           </Button>
@@ -435,6 +462,32 @@ export default function App() {
         data={data}
         onApply={(action) => commit((current) => applySuggestion(current, action))}
       />
+
+      {exportText ? (
+        <Modal title="导出给 Cursor / Codex" onClose={() => setExportText(null)} width={640}>
+          <div className="stack" style={{ gap: 12 }}>
+            <div className="muted small">
+              复制下面全文，贴进 Cursor、Codex、Claude Code 都可以。这是纯文本计划快照，任何 IDE 都能读。网站上的 P人大救星改不了 Cursor 额度；用导出是把数据交给你正在用的 IDE。
+            </div>
+            <textarea
+              className="field day-note"
+              readOnly
+              value={exportText}
+              style={{ minHeight: 240, fontFamily: "Consolas, monospace", fontSize: 12 }}
+            />
+            <div className="row" style={{ justifyContent: "flex-end" }}>
+              <Button
+                variant="primary"
+                onClick={() => {
+                  void navigator.clipboard.writeText(exportText).then(() => setCopied(true));
+                }}
+              >
+                {copied ? "已复制" : "复制全文"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
 
       {taskDraft ? (
         <TaskEditor
@@ -574,8 +627,14 @@ export default function App() {
       ) : null}
 
       <footer className="small muted-3" style={{ marginTop: 26, textAlign: "center" }}>
-        数据存在这台浏览器本地，换设备不会同步。
-        今天共 {tasksOfDay(data, today).length} 个任务。
+        当前是「{ownerName}」在这台浏览器里的计划，同学在他们自己手机/电脑上改，不会动到你这份。
+        发给同学请用 {siteHomeUrl()} ，让他们用自己的名字新建。
+        今天 {tasksOfDay(data, today).length} 个任务。
+        <div className="row" style={{ justifyContent: "center", marginTop: 8 }}>
+          <Button small onClick={workspace.leave}>
+            换人 / 新建计划
+          </Button>
+        </div>
       </footer>
     </div>
   );
