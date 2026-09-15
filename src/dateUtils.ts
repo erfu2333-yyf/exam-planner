@@ -88,6 +88,11 @@ export function weeksAndDays(days: number): string {
   return rest === 0 ? `${weeks}周` : `${weeks}周余${rest}天`;
 }
 
+/** 本机日历上的今天，不夹到备考周期里，给倒计时用 */
+export function calendarKey(): string {
+  return toKey(new Date());
+}
+
 /** 把小时数取整到半小时 */
 export function snapHour(value: number): number {
   return Math.round(value * 2) / 2;

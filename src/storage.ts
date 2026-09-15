@@ -26,6 +26,7 @@ export const localRepository: Repository = {
         dayPlans: parsed.dayPlans ?? {},
         plannedHours: parsed.plannedHours ?? {},
         weekTexts: parsed.weekTexts ?? {},
+        dayNotes: parsed.dayNotes ?? {},
         capacity: parsed.capacity ?? INITIAL_DATA.capacity,
       };
     } catch {

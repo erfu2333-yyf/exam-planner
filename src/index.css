@@ -142,6 +142,63 @@ textarea {
   border-radius: 4px;
 }
 
+.week-cell-input {
+  width: 100%;
+  min-height: 52px;
+  border: none;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.9);
+  color: #111318;
+  font-size: 13px;
+  font-weight: 650;
+  line-height: 1.45;
+  padding: 7px 8px;
+  outline: none;
+}
+
+.week-cell-input::placeholder {
+  color: #2f3542;
+  font-weight: 650;
+  opacity: 1;
+}
+
+.context-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 168px;
+  padding: 6px;
+  border: 1px solid var(--stroke);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: 0 12px 32px rgba(23, 26, 33, 0.18);
+}
+
+.context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+.context-menu button:hover {
+  background: var(--surface-2);
+}
+
+.week-cell-input:focus {
+  background: #ffffff;
+  box-shadow: 0 0 0 2px rgba(59, 109, 255, 0.28);
+}
+
+.day-note {
+  width: 100%;
+  min-height: 140px;
+  line-height: 1.6;
+}
+
 /* 卡片与表格 */
 .card {
   border: 1px solid var(--stroke);

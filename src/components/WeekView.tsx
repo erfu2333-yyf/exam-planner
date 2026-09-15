@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   TOTAL_WEEKS,
   WEEK_DAY_LABELS,
@@ -6,10 +7,10 @@ import {
   weekRangeLabel,
   weekStartKey,
 } from "../dateUtils";
-import { arrangedHoursOf, coversDay, overlapsRange, plannedHoursOf } from "../schedule";
+import { coversDay, overlapsRange, plannedHoursOf, scheduledHoursOf } from "../schedule";
 import { colorOf, tint } from "../theme";
 import type { PlannerData, Subject, Task } from "../types";
-import { Button, NumberField } from "./ui";
+import { Button, Callout, NumberField } from "./ui";
 
 const GRID = "150px 66px minmax(0, 1fr)";
 
@@ -36,6 +37,7 @@ export function WeekView({
   onPlannedChange: (dateKey: string, hours: number) => void;
   onCellTextChange: (key: string, text: string) => void;
 }) {
+  const [reportOpen, setReportOpen] = useState(false);
   const days = Array.from({ length: 7 }, (_, index) => addDays(weekStartKey(week), index));
   const weekFrom = days[0];
   const weekTo = days[6];
@@ -91,13 +93,13 @@ export function WeekView({
         >
           <div style={{ padding: "8px 10px" }}>
             <div style={{ fontWeight: 600 }}>计划 / 已排</div>
-            <div className="small muted-3">已排由时间轴自动算</div>
+            <div className="small muted-3">已排按日均用时累计</div>
           </div>
           <div />
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}>
             {days.map((dateKey) => {
               const planned = plannedHoursOf(data, dateKey);
-              const arranged = arrangedHoursOf(data, dateKey);
+              const arranged = scheduledHoursOf(data, dateKey);
               const over = arranged > planned;
               return (
                 <div
@@ -226,19 +228,18 @@ export function WeekView({
                         <div
                           key={cellKey}
                           style={{
-                            padding: 4,
+                            padding: 5,
                             borderLeft: "1px solid var(--stroke)",
-                            background: active ? tint(task.colorId, 0.3) : "var(--surface-2)",
+                            background: active ? tint(task.colorId, 0.18) : "var(--surface-2)",
                           }}
                         >
                           {active ? (
                             <textarea
-                              className="field-plain small"
+                              className="week-cell-input"
                               rows={2}
                               value={data.weekTexts[cellKey] ?? ""}
                               placeholder={task.name}
                               onChange={(event) => onCellTextChange(cellKey, event.target.value)}
-                              style={{ minHeight: 44 }}
                             />
                           ) : (
                             <div style={{ minHeight: 44 }} />
@@ -259,6 +260,38 @@ export function WeekView({
           </div>
         ) : null}
       </div>
+
+      <div className="row" style={{ justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
+        <span className="small muted">正式版每周五 23:59 自动生成；当前不记录数据</span>
+        <Button small onClick={() => setReportOpen((value) => !value)}>
+          {reportOpen ? "收起框架" : "查看周报框架"}
+        </Button>
+      </div>
+      {reportOpen ? (
+        <div className="panel" style={{ background: "var(--surface-2)" }}>
+          <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
+            <strong>每周自动周报 · 空框架</strong>
+            <span className="small muted">暂不记录</span>
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+            <Callout>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>完成情况</div>
+              <div className="small muted">完成率、完成时长、各科推进情况。</div>
+            </Callout>
+            <Callout tone="warning">
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>主要阻塞</div>
+              <div className="small muted">未完成原因、连续延期任务、容量冲突。</div>
+            </Callout>
+            <Callout>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>下周调整</div>
+              <div className="small muted">负荷调整、优先级变化和具体排期建议。</div>
+            </Callout>
+          </div>
+          <div className="small muted" style={{ marginTop: 12 }}>
+            当前不读取完成记录和当日总结，也不保留周报上下文。
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

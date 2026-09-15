@@ -1,5 +1,5 @@
 import { DEFAULT_PLANNED_HOURS } from "./data";
-import { HOUR_END, HOUR_START, addDays, dayIndex, diffDays } from "./dateUtils";
+import { HOUR_END, HOUR_START, addDays, dayIndex, diffDays, snapHour } from "./dateUtils";
 import type { DayEntry, DayPlan, PlannerData, Subject, Task } from "./types";
 
 /** 任务是否覆盖某一天 */
@@ -95,12 +95,45 @@ export function entryHours(entry: DayEntry): number {
   return Math.max(0, entry.end - entry.start);
 }
 
-/** 某天已排总时长 */
+/** 某天时间轴上实际铺开的时长 */
 export function arrangedHoursOf(data: PlannerData, dateKey: string): number {
   return Object.values(dayPlanOf(data, dateKey)).reduce(
     (sum, entry) => sum + entryHours(entry),
     0,
   );
+}
+
+/** 周历顶部的「已排」：按覆盖当天的任务日均用时累计，跟总览同一套数 */
+export function scheduledHoursOf(data: PlannerData, dateKey: string): number {
+  return tasksOfDay(data, dateKey).reduce((sum, task) => sum + task.dailyHours, 0);
+}
+
+/**
+ * 总览改了日均用时后，把已经存下来的当天色块时长跟着改。
+ * 起点不动，只拉长或缩短，避免把用户拖过的位置整段打乱。
+ */
+export function applyDailyHoursToDayPlans(
+  dayPlans: Record<string, DayPlan>,
+  task: Task,
+): Record<string, DayPlan> {
+  const duration = Math.max(0.5, task.dailyHours);
+  let changed = false;
+  const next: Record<string, DayPlan> = {};
+  for (const [dateKey, plan] of Object.entries(dayPlans)) {
+    const entry = plan[task.id];
+    if (!entry || !coversDay(task, dateKey)) {
+      next[dateKey] = plan;
+      continue;
+    }
+    const end = Math.min(HOUR_END, Math.max(entry.start + 0.5, snapHour(entry.start + duration)));
+    if (entry.end === end) {
+      next[dateKey] = plan;
+      continue;
+    }
+    changed = true;
+    next[dateKey] = { ...plan, [task.id]: { ...entry, end } };
+  }
+  return changed ? next : dayPlans;
 }
 
 export function plannedHoursOf(data: PlannerData, dateKey: string): number {

@@ -181,5 +181,6 @@ export const INITIAL_DATA: PlannerData = {
   dayPlans: {},
   plannedHours: {},
   weekTexts: {},
+  dayNotes: {},
   capacity: 12,
 };

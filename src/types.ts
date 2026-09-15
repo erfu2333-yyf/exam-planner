@@ -44,6 +44,8 @@ export type PlannerData = {
   plannedHours: Record<string, number>;
   /** `${taskId}|${dateKey}` -> 周历格子里的文字 */
   weekTexts: Record<string, string>;
+  /** dateKey -> 当天整段总结 */
+  dayNotes: Record<string, string>;
   /** 每天可用总时长，超过就算超负荷 */
   capacity: number;
 };

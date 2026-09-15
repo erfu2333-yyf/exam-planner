@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { AiPanel } from "./components/AiPanel";
 import { DayView } from "./components/DayView";
 import {
@@ -17,6 +17,7 @@ import {
   TOTAL_DAYS,
   TOTAL_WEEKS,
   addDays,
+  calendarKey,
   dayIndex,
   daysUntilExam,
   formatCN,
@@ -26,6 +27,7 @@ import {
   weeksAndDays,
 } from "./dateUtils";
 import {
+  applyDailyHoursToDayPlans,
   dayPlanOf,
   generateDayPlan,
   overflowAfterShift,
@@ -39,13 +41,13 @@ const LAST_DAY = keyFromIndex(TOTAL_DAYS - 1);
 
 export default function App() {
   const { data, commit, update, undo, canUndo } = usePlanner();
-  const today = useMemo(() => todayKey(), []);
+  const [, setNow] = useState(() => Date.now());
 
   const [view, setView] = useState<ViewKey>("overview");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [methodId, setMethodId] = useState<string | null>(null);
-  const [week, setWeek] = useState(() => weekOfIndex(dayIndex(today)));
-  const [dayKey, setDayKey] = useState(today);
+  const [week, setWeek] = useState(() => weekOfIndex(dayIndex(todayKey())));
+  const [dayKey, setDayKey] = useState(() => todayKey());
   const [filterFrom, setFilterFrom] = useState("1");
   const [filterTo, setFilterTo] = useState(String(TOTAL_WEEKS));
 
@@ -57,7 +59,20 @@ export default function App() {
   const [carryoverDate, setCarryoverDate] = useState<string | null>(null);
   const [carryoverDismissed, setCarryoverDismissed] = useState(false);
 
-  const daysLeft = daysUntilExam(today);
+  const today = todayKey();
+  const daysLeft = daysUntilExam(calendarKey());
+
+  useEffect(() => {
+    const refresh = () => setNow(Date.now());
+    const timer = window.setInterval(refresh, 60_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -82,10 +97,20 @@ export default function App() {
   }, [data.dayPlans, today, carryoverDismissed]);
 
   const patchTask = (taskId: string, patch: Partial<Task>, undoable = true) => {
-    const apply = (current: PlannerData): PlannerData => ({
-      ...current,
-      tasks: current.tasks.map((task) => (task.id === taskId ? { ...task, ...patch } : task)),
-    });
+    const apply = (current: PlannerData): PlannerData => {
+      const tasks = current.tasks.map((task) =>
+        task.id === taskId ? { ...task, ...patch } : task,
+      );
+      const updated = tasks.find((task) => task.id === taskId);
+      return {
+        ...current,
+        tasks,
+        dayPlans:
+          patch.dailyHours != null && updated
+            ? applyDailyHoursToDayPlans(current.dayPlans, updated)
+            : current.dayPlans,
+      };
+    };
     (undoable ? commit : update)(apply);
   };
 
@@ -122,11 +147,16 @@ export default function App() {
         colorId: draft.colorId,
       };
       if (draft.id) {
+        const tasks = current.tasks.map((task) =>
+          task.id === draft.id ? { ...task, ...fields } : task,
+        );
+        const updated = tasks.find((task) => task.id === draft.id);
         return {
           ...current,
-          tasks: current.tasks.map((task) =>
-            task.id === draft.id ? { ...task, ...fields } : task,
-          ),
+          tasks,
+          dayPlans: updated
+            ? applyDailyHoursToDayPlans(current.dayPlans, updated)
+            : current.dayPlans,
         };
       }
       return {
@@ -209,6 +239,41 @@ export default function App() {
           : task,
       ),
     }));
+  };
+
+  const moveTaskToTomorrow = (fromKey: string, taskId: string) => {
+    const tomorrow = addDays(fromKey, 1);
+    commit((current) => {
+      const todayPlan = dayPlanOf(current, fromKey);
+      const todayEntry = todayPlan[taskId];
+      const tasks = current.tasks.map((task) =>
+        task.id === taskId
+          ? { ...task, endDate: minKey(addDays(task.endDate, 1), LAST_DAY) }
+          : task,
+      );
+      const shifted = { ...current, tasks };
+      const dayPlans: PlannerData["dayPlans"] = {
+        ...current.dayPlans,
+        [fromKey]: todayEntry
+          ? { ...todayPlan, [taskId]: { ...todayEntry, status: "unfinished" } }
+          : todayPlan,
+      };
+      if (dayIndex(tomorrow) >= 0 && dayIndex(tomorrow) < TOTAL_DAYS) {
+        const tomorrowPlan = dayPlanOf(shifted, tomorrow);
+        const tomorrowEntry = tomorrowPlan[taskId];
+        if (tomorrowEntry) {
+          dayPlans[tomorrow] = {
+            ...tomorrowPlan,
+            [taskId]: {
+              ...tomorrowEntry,
+              note: todayEntry?.note || tomorrowEntry.note,
+              status: "pending",
+            },
+          };
+        }
+      }
+      return { ...shifted, dayPlans };
+    });
   };
 
   /** 整体计划后移，越界的任务先警告 */
@@ -347,6 +412,14 @@ export default function App() {
           onSelect={setSelectedId}
           onEntryChange={(taskId, patch) => patchEntry(dayKey, taskId, patch)}
           onPlannedChange={setPlanned}
+          onNoteChange={(text) =>
+            update((current) => ({
+              ...current,
+              dayNotes: { ...current.dayNotes, [dayKey]: text },
+            }))
+          }
+          onMoveTomorrow={(taskId) => moveTaskToTomorrow(dayKey, taskId)}
+          onShiftPlan={() => shiftWholePlan(1)}
           onRegenerate={() =>
             commit((current) => ({
               ...current,

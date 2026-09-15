@@ -26,6 +26,9 @@ export function DayView({
   onPlannedChange,
   onRegenerate,
   onDragStart,
+  onNoteChange,
+  onMoveTomorrow,
+  onShiftPlan,
 }: {
   data: PlannerData;
   dateKey: string;
@@ -36,9 +39,13 @@ export function DayView({
   onPlannedChange: (dateKey: string, hours: number) => void;
   onRegenerate: () => void;
   onDragStart: () => void;
+  onNoteChange: (text: string) => void;
+  onMoveTomorrow: (taskId: string) => void;
+  onShiftPlan: () => void;
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [drag, setDrag] = useState<Drag | null>(null);
+  const [menu, setMenu] = useState<{ taskId: string; x: number; y: number } | null>(null);
 
   const plan = dayPlanOf(data, dateKey);
   const tasks = tasksOfDay(data, dateKey);
@@ -84,6 +91,13 @@ export function DayView({
       window.removeEventListener("pointerup", onUp);
     };
   }, [drag, plan, onEntryChange]);
+
+  useEffect(() => {
+    if (!menu) return;
+    const close = () => setMenu(null);
+    window.addEventListener("click", close);
+    return () => window.removeEventListener("click", close);
+  }, [menu]);
 
   return (
     <div className="stack" style={{ gap: 12 }}>
@@ -281,7 +295,7 @@ export function DayView({
             <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
               <strong>今日执行清单</strong>
               <span className="small muted">
-                {doneCount}/{tasks.length}
+                {doneCount}/{tasks.length} · 未完成可右键
               </span>
             </div>
             <div className="stack" style={{ gap: 4 }}>
@@ -293,11 +307,16 @@ export function DayView({
                   <div
                     key={task.id}
                     className="row"
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      setMenu({ taskId: task.id, x: event.clientX, y: event.clientY });
+                    }}
                     style={{
                       gap: 7,
                       padding: "4px 6px",
                       borderRadius: 6,
                       background: tint(task.colorId, 0.16),
+                      cursor: "context-menu",
                     }}
                   >
                     <input
@@ -334,6 +353,54 @@ export function DayView({
             </div>
           </div>
         </div>
+      </div>
+
+      {menu ? (
+        <div
+          className="context-menu"
+          style={{ left: menu.x, top: menu.y }}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              onEntryChange(menu.taskId, { status: "done" });
+              setMenu(null);
+            }}
+          >
+            已完成
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onMoveTomorrow(menu.taskId);
+              setMenu(null);
+            }}
+          >
+            挪到明天
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onShiftPlan();
+              setMenu(null);
+            }}
+          >
+            整体计划后移一天
+          </button>
+        </div>
+      ) : null}
+
+      <div className="panel">
+        <strong>今日总结</strong>
+        <textarea
+          className="field day-note"
+          rows={6}
+          value={data.dayNotes[dateKey] ?? ""}
+          placeholder="今天学得怎么样、卡在哪里、明天要改什么…"
+          onChange={(event) => onNoteChange(event.target.value)}
+          style={{ marginTop: 8 }}
+        />
       </div>
     </div>
   );

@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Button } from "./ui";
 
 /**
- * AI 计划助手。用 position: fixed 贴在右侧，随页面滚动始终可见。
+ * P人大救星。用 position: fixed 贴在右侧，随页面滚动始终可见。
  * 现在只有界面框架，发送按钮不接模型；接后端时替换 send 的实现即可。
  */
 export function AiPanel() {
@@ -14,25 +14,35 @@ export function AiPanel() {
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title="打开 AI 计划助手"
+        title="打开 P人大救星"
         style={{
           position: "fixed",
           right: 0,
-          top: "38%",
+          top: "34%",
           zIndex: 60,
-          width: 36,
-          padding: "14px 0",
+          width: 40,
+          padding: "12px 0",
           border: "1px solid var(--accent)",
           borderRight: "none",
           borderRadius: "10px 0 0 10px",
           background: "var(--surface)",
           color: "var(--accent)",
           fontWeight: 700,
-          lineHeight: 1.4,
+          fontSize: 13,
+          lineHeight: 1.35,
           cursor: "pointer",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          gap: 2,
+          letterSpacing: 0,
         }}
       >
-        A<br />I
+        <span style={{ fontSize: 16, fontWeight: 800, lineHeight: 1 }}>P</span>
+        <span>人</span>
+        <span>大</span>
+        <span>救</span>
+        <span>星</span>
       </button>
     );
   }
@@ -65,7 +75,7 @@ export function AiPanel() {
         }}
       >
         <div>
-          <div style={{ fontWeight: 600 }}>AI 计划助手</div>
+          <div style={{ fontWeight: 700, fontSize: 16 }}>P人大救星</div>
           <div className="small muted-3">模型锁定 Grok 4.6</div>
         </div>
         <button

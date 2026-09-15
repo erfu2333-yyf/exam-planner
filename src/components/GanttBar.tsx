@@ -85,7 +85,11 @@ export function GanttBar({
       mode,
       grabOffset: indexFromClientX(event.clientX) - startIndex,
     };
-    (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    try {
+      (event.currentTarget as HTMLElement).setPointerCapture(event.pointerId);
+    } catch {
+      // 合成指针事件没有真实 pointerId，忽略即可
+    }
   };
 
   const move = (event: React.PointerEvent) => {
