@@ -1,5 +1,6 @@
+import { generateText } from "ai";
+
 const MODEL = "spacexai/grok-4.6";
-const GATEWAY_URL = "https://ai-gateway.vercel.sh/v1/chat/completions";
 
 export const maxDuration = 60;
 
@@ -47,73 +48,56 @@ export async function POST(request: Request): Promise<Response> {
   if (!question) return json({ error: "请先输入问题。" }, 400);
   if (!body.snapshot) return json({ error: "缺少当前计划。" }, 400);
 
-  const token = gatewayToken(request);
-  if (!token) {
-    return json(
-      {
-        error:
-          "还没配好模型密钥。请在 Vercel 项目设置里打开 OIDC，或添加环境变量 AI_GATEWAY_API_KEY。",
-      },
-      503,
-    );
-  }
-
   const history = Array.isArray(body.history) ? body.history.slice(-8) : [];
   const messages = [
-    { role: "system", content: SYSTEM_PROMPT },
     {
-      role: "user",
+      role: "user" as const,
       content: `当前计划快照：\n${JSON.stringify(body.snapshot)}`,
     },
     ...history.map((turn) => ({
       role: turn.role,
       content: String(turn.content ?? "").slice(0, 4000),
     })),
-    { role: "user", content: question },
+    { role: "user" as const, content: question },
   ];
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 50_000);
-
   try {
-    const response = await fetch(GATEWAY_URL, {
-      method: "POST",
-      signal: controller.signal,
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        temperature: 0.3,
-        max_tokens: 1200,
-        stream: false,
-        reasoning: { effort: "low" },
-        response_format: { type: "json_object" },
-        messages,
-      }),
+    const { text } = await generateText({
+      model: MODEL,
+      system: SYSTEM_PROMPT,
+      messages,
+      temperature: 0.3,
+      maxOutputTokens: 1200,
+      maxRetries: 1,
     });
-
-    const raw = await response.text();
-    if (!response.ok) {
-      console.error("AI Gateway error", response.status, raw.slice(0, 800));
-      return json({ error: gatewayHint(response.status, raw) }, 502);
-    }
-
-    const parsed = JSON.parse(raw) as {
-      choices?: Array<{ message?: { content?: string } }>;
-    };
-    const content = parsed.choices?.[0]?.message?.content ?? "";
-    const result = parseModelJson(content);
+    const result = parseModelJson(text);
     if (!result) {
       return json({ error: "模型返回格式异常，请再试一次。" }, 502);
     }
     return json(result);
   } catch (error) {
-    const aborted = error instanceof Error && error.name === "AbortError";
-    return json({ error: aborted ? "思考超时，请把问题再缩短一些。" : "调用模型失败，请稍后重试。" }, 504);
-  } finally {
-    clearTimeout(timer);
+    console.error("P人大救星", error);
+    const name = error instanceof Error ? error.name : "";
+    const message = error instanceof Error ? error.message : "";
+    if (name === "GatewayAuthenticationError" || /auth/i.test(message)) {
+      return json(
+        {
+          error:
+            "模型鉴权失败。请打开 Vercel 的 AI Gateway 并绑定支付方式以使用额度，或添加环境变量 AI_GATEWAY_API_KEY。",
+        },
+        502,
+      );
+    }
+    if (/credit|billing|payment|402/i.test(message)) {
+      return json(
+        { error: "AI Gateway 额度不足。请在 Vercel 团队绑定支付方式以使用免费额度。" },
+        402,
+      );
+    }
+    if (/abort|timeout/i.test(message)) {
+      return json({ error: "思考超时，请把问题再缩短一些。" }, 504);
+    }
+    return json({ error: "调用模型失败，请稍后重试。" }, 502);
   }
 }
 
@@ -122,27 +106,6 @@ function json(payload: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8" },
   });
-}
-
-function gatewayToken(request: Request): string | undefined {
-  return (
-    process.env.AI_GATEWAY_API_KEY?.trim() ||
-    request.headers.get("x-vercel-oidc-token")?.trim() ||
-    process.env.VERCEL_OIDC_TOKEN?.trim() ||
-    undefined
-  );
-}
-
-function gatewayHint(status: number, raw: string): string {
-  const lower = raw.toLowerCase();
-  if (status === 401 || status === 403) {
-    return "模型鉴权失败。请在 Vercel 的 AI Gateway 开通额度，或配置 AI_GATEWAY_API_KEY。";
-  }
-  if (status === 402 || lower.includes("credit") || lower.includes("billing")) {
-    return "AI Gateway 额度不足。请在 Vercel 团队绑定支付方式以使用免费额度。";
-  }
-  if (status === 429) return "提问太频繁，请稍等再试。";
-  return "模型暂时不可用，请稍后再试。";
 }
 
 function parseModelJson(content: string): { reply: string; suggestions: unknown[] } | null {
