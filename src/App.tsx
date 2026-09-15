@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { applySuggestion } from "./ai";
 import { AiPanel } from "./components/AiPanel";
 import { DayView } from "./components/DayView";
 import {
@@ -430,7 +431,10 @@ export default function App() {
         />
       ) : null}
 
-      <AiPanel />
+      <AiPanel
+        data={data}
+        onApply={(action) => commit((current) => applySuggestion(current, action))}
+      />
 
       {taskDraft ? (
         <TaskEditor
