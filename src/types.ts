@@ -1,0 +1,49 @@
+export type ViewKey = "overview" | "week" | "day";
+
+export type Subject = {
+  id: string;
+  name: string;
+  colorId: string;
+  /** 每日排程的先后顺序，数字越小越靠早晨。政治给大值以排到晚上。 */
+  order: number;
+};
+
+export type Task = {
+  id: string;
+  subjectId: string;
+  name: string;
+  /** 日均计划用时（小时） */
+  dailyHours: number;
+  /** 含当天，本地 yyyy-mm-dd */
+  startDate: string;
+  /** 含当天，本地 yyyy-mm-dd */
+  endDate: string;
+  method: string;
+  colorId: string;
+};
+
+export type TaskStatus = "pending" | "done" | "unfinished";
+
+export type DayEntry = {
+  /** 小时，支持半小时，如 7.5 */
+  start: number;
+  end: number;
+  note: string;
+  status: TaskStatus;
+};
+
+/** taskId -> 当天安排 */
+export type DayPlan = Record<string, DayEntry>;
+
+export type PlannerData = {
+  subjects: Subject[];
+  tasks: Task[];
+  /** dateKey -> DayPlan，只存用户改过或已生成的日期 */
+  dayPlans: Record<string, DayPlan>;
+  /** dateKey -> 当天计划可用时长 */
+  plannedHours: Record<string, number>;
+  /** `${taskId}|${dateKey}` -> 周历格子里的文字 */
+  weekTexts: Record<string, string>;
+  /** 每天可用总时长，超过就算超负荷 */
+  capacity: number;
+};
