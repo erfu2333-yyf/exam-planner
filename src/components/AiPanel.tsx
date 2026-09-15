@@ -94,6 +94,7 @@ export function AiPanel({
         reply?: string;
         suggestions?: unknown;
         error?: string;
+        model?: string;
       } | null;
       if (!payload) {
         throw new Error("接口还没就绪，请过一两分钟再试。");
@@ -101,12 +102,16 @@ export function AiPanel({
       if (!response.ok) {
         throw new Error(payload.error || "发送失败");
       }
+      const fallbackNote =
+        payload.model && payload.model !== "spacexai/grok-4.6"
+          ? "\n\n（Grok 4.6 当前额度不可用，这次用了免费备用模型。开通 Vercel AI Gateway 额度后会自动切回。）"
+          : "";
       setMessages((current) => [
         ...current,
         {
           id: `a-${Date.now()}`,
           role: "assistant",
-          text: payload.reply || "我看过了，暂时没有额外建议。",
+          text: (payload.reply || "我看过了，暂时没有额外建议。") + fallbackNote,
           suggestions: parseSuggestions(payload.suggestions, data),
         },
       ]);

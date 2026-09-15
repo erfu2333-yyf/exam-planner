@@ -1,6 +1,7 @@
 import { generateText } from "ai";
 
 const MODEL = "spacexai/grok-4.6";
+const FALLBACK_MODEL = "poolside/laguna-s-2.1-free";
 
 export const maxDuration = 60;
 
@@ -62,19 +63,12 @@ export async function POST(request: Request): Promise<Response> {
   ];
 
   try {
-    const { text } = await generateText({
-      model: MODEL,
-      system: SYSTEM_PROMPT,
-      messages,
-      temperature: 0.3,
-      maxOutputTokens: 1200,
-      maxRetries: 1,
-    });
+    const { text, model } = await runWithFallback(messages);
     const result = parseModelJson(text);
     if (!result) {
       return json({ error: "模型返回格式异常，请再试一次。" }, 502);
     }
-    return json(result);
+    return json({ ...result, model });
   } catch (error) {
     console.error("P人大救星", error);
     const name = error instanceof Error ? error.name : "";
@@ -106,6 +100,36 @@ function json(payload: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8" },
   });
+}
+
+function isQuotaError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /credit|billing|payment|402|403|quota|free tier|not have access/i.test(message);
+}
+
+async function runWithFallback(messages: Array<{ role: "user" | "assistant"; content: string }>) {
+  try {
+    const result = await generateText({
+      model: MODEL,
+      system: SYSTEM_PROMPT,
+      messages,
+      temperature: 0.3,
+      maxOutputTokens: 1200,
+      maxRetries: 1,
+    });
+    return { text: result.text, model: MODEL };
+  } catch (error) {
+    if (!isQuotaError(error)) throw error;
+    const result = await generateText({
+      model: FALLBACK_MODEL,
+      system: SYSTEM_PROMPT,
+      messages,
+      temperature: 0.3,
+      maxOutputTokens: 1200,
+      maxRetries: 1,
+    });
+    return { text: result.text, model: FALLBACK_MODEL };
+  }
 }
 
 function parseModelJson(content: string): { reply: string; suggestions: unknown[] } | null {
