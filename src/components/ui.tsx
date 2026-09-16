@@ -59,7 +59,7 @@ export function NumberField({
 }: {
   value: number | string;
   onChange: (value: string) => void;
-  width?: number;
+  width?: number | string;
   step?: number;
   min?: number;
   title?: string;

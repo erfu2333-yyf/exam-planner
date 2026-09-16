@@ -55,6 +55,8 @@ export type PlannerData = {
   plannedHours: Record<string, number>;
   /** `${taskId}|${dateKey}` -> 周历格子里的文字 */
   weekTexts: Record<string, string>;
+  /** `${taskId}|${dateKey}` -> 当前周精细化用时，缺省则用任务日均 */
+  dayHours: Record<string, number>;
   /** dateKey -> 当天整段总结 */
   dayNotes: Record<string, string>;
   /** dateKey -> 当天杂事，不影响总览和周历 */
@@ -65,6 +67,4 @@ export type PlannerData = {
   examDate: string;
   /** 每天可用总时长，超过就算超负荷 */
   capacity: number;
-  /** 当前周表头：周六至周五，或周一至周日 */
-  weekStart?: "sat" | "mon";
 };

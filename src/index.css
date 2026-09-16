@@ -132,6 +132,14 @@ input.field[type="number"] {
   padding-bottom: 0;
 }
 
+.week-day-hours input.field[type="number"] {
+  height: 22px;
+  width: 100%;
+  padding: 0 2px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
 textarea.field {
   width: 100%;
   min-width: 0;
@@ -167,16 +175,20 @@ textarea.field {
 
 .week-cell-input {
   width: 100%;
-  min-height: 52px;
+  min-height: 38px;
+  height: 38px;
+  resize: none;
   border: none;
   border-radius: 7px;
   background: rgba(255, 255, 255, 0.9);
   color: #111318;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 650;
-  line-height: 1.45;
-  padding: 7px 8px;
+  line-height: 1.35;
+  padding: 4px 6px;
   outline: none;
+  overflow: auto;
+  overflow-wrap: anywhere;
 }
 
 .week-cell-input::placeholder {
@@ -228,6 +240,59 @@ textarea.field {
   border-radius: var(--radius);
   background: var(--surface);
   overflow: hidden;
+}
+
+.planner-table {
+  overflow: visible;
+}
+
+.planner-table-day {
+  overflow-x: auto;
+}
+
+.planner-table-week {
+  overflow-x: auto;
+  padding-right: 48px;
+}
+
+.planner-table-head {
+  position: sticky;
+  top: 0;
+  z-index: 12;
+  background: var(--surface-3);
+  box-shadow: 0 1px 0 var(--stroke);
+}
+
+.planner-stick-name,
+.planner-stick-hours {
+  position: sticky;
+  z-index: 4;
+  background: var(--surface);
+}
+
+.planner-stick-name {
+  left: 0;
+}
+
+.planner-stick-hours {
+  left: 210px;
+}
+
+.planner-table-head .planner-stick-name,
+.planner-table-head .planner-stick-hours {
+  top: 0;
+  z-index: 14;
+  background: var(--surface-3);
+}
+
+.planner-row-subject .planner-stick-name,
+.planner-row-subject .planner-stick-hours {
+  background: var(--surface-2);
+}
+
+.planner-row-active .planner-stick-name,
+.planner-row-active .planner-stick-hours {
+  background: var(--surface-2);
 }
 
 .panel {

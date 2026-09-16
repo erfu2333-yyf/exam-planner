@@ -25,12 +25,12 @@ export function parsePlanner(raw: string | null | unknown): PlannerData {
       dayPlans: parsed.dayPlans ?? {},
       plannedHours: parsed.plannedHours ?? {},
       weekTexts: parsed.weekTexts ?? {},
+      dayHours: parsed.dayHours ?? {},
       dayNotes: parsed.dayNotes ?? {},
       dayMiscs: normalizeMiscs(parsed.dayMiscs),
       eventName: parsed.eventName?.trim() || "考研",
       examDate: parsed.examDate ?? DEFAULT_EXAM_DATE,
       capacity: parsed.capacity ?? INITIAL_DATA.capacity,
-      weekStart: parsed.weekStart === "mon" ? "mon" : "sat",
     };
   } catch {
     return INITIAL_DATA;
@@ -80,14 +80,16 @@ export function usePlanner(spaceId: string | null, cloud = false) {
     repository ? repository.load() : INITIAL_DATA,
   );
   const [history, setHistory] = useState<PlannerData[]>([]);
-  const [saveError, setSaveError] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(!cloud);
   const saveTimer = useRef<number | undefined>(undefined);
+  const dirtyRef = useRef(false);
 
   useEffect(() => {
+    dirtyRef.current = false;
     setData(repository ? repository.load() : INITIAL_DATA);
     setHistory([]);
-    setSaveError(false);
+    setSaveError(null);
     setHydrated(!cloud);
   }, [repository, cloud]);
 
@@ -98,6 +100,10 @@ export function usePlanner(spaceId: string | null, cloud = false) {
       try {
         const remote = await getCloudPlan();
         if (cancelled) return;
+        if (dirtyRef.current) {
+          setHydrated(true);
+          return;
+        }
         if (remote) {
           const parsed = parsePlanner(remote);
           setData(parsed);
@@ -106,7 +112,7 @@ export function usePlanner(spaceId: string | null, cloud = false) {
           await putCloudPlan(repository.load());
         }
       } catch {
-        if (!cancelled) setSaveError(true);
+        if (!cancelled) setSaveError("没能同步到云端。先留在这台设备上，联网后会再试。");
       } finally {
         if (!cancelled) setHydrated(true);
       }
@@ -121,18 +127,23 @@ export function usePlanner(spaceId: string | null, cloud = false) {
     window.clearTimeout(saveTimer.current);
     saveTimer.current = window.setTimeout(() => {
       const localOk = repository.save(data);
+      if (!localOk) {
+        setSaveError("这台设备存不下这份计划了。先点右上角导出备份，清一点浏览器数据后再改。");
+        return;
+      }
       if (!cloud) {
-        setSaveError(!localOk);
+        setSaveError(null);
         return;
       }
       void putCloudPlan(data).then((remoteOk) => {
-        setSaveError(!localOk || !remoteOk);
+        setSaveError(remoteOk ? null : "没能同步到云端。先留在这台设备上，联网后会再试。");
       });
     }, 250);
     return () => window.clearTimeout(saveTimer.current);
   }, [data, repository, cloud, hydrated]);
 
   const commit = useCallback((next: (current: PlannerData) => PlannerData) => {
+    dirtyRef.current = true;
     setData((current) => {
       setHistory((stack) => [...stack.slice(-(HISTORY_LIMIT - 1)), current]);
       return next(current);
@@ -140,6 +151,7 @@ export function usePlanner(spaceId: string | null, cloud = false) {
   }, []);
 
   const update = useCallback((next: (current: PlannerData) => PlannerData) => {
+    dirtyRef.current = true;
     setData(next);
   }, []);
 

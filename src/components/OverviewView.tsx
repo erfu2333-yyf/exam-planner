@@ -150,7 +150,8 @@ export function OverviewView({
         </span>
       </div>
 
-      <div className="card" style={{ overflowX: scale === "day" ? "auto" : undefined }}>
+      <div className={`card planner-table${scale === "day" ? " planner-table-day" : ""}`}>
+        <div className="planner-table-head">
         <div
           style={{
             display: "grid",
@@ -160,8 +161,8 @@ export function OverviewView({
             minWidth: rowMinWidth,
           }}
         >
-          <div />
-          <div />
+          <div className="planner-stick-name" />
+          <div className="planner-stick-hours" />
           <TodayCaption span={span} weekFrom={weekFrom} weekTo={weekTo} />
         </div>
         <div
@@ -172,8 +173,8 @@ export function OverviewView({
             minWidth: rowMinWidth,
           }}
         >
-          <div style={{ padding: "9px 10px", fontWeight: 600 }}>二级任务</div>
-          <div style={{ padding: "9px 4px", fontWeight: 600, textAlign: "center" }} className="small">
+          <div className="planner-stick-name" style={{ padding: "9px 10px", fontWeight: 600 }}>任务清单</div>
+          <div className="planner-stick-hours small" style={{ padding: "9px 4px", fontWeight: 600, textAlign: "center" }}>
             日均用时
           </div>
           <TimelineHeader
@@ -184,6 +185,7 @@ export function OverviewView({
             weekTo={weekTo}
             scale={scale}
           />
+        </div>
         </div>
 
         {visibleSubjects.map((subject) => {
@@ -219,8 +221,10 @@ export function OverviewView({
                           : "var(--surface)",
                       minWidth: rowMinWidth,
                     }}
+                    className={task.id === selectedId || dragId === task.id ? "planner-row-active" : undefined}
                   >
                     <div
+                      className="planner-stick-name"
                       style={{
                         padding: "0 9px",
                         minHeight: 42,
@@ -270,6 +274,7 @@ export function OverviewView({
                       </button>
                     </div>
                     <div
+                      className="planner-stick-hours"
                       style={{
                         padding: "0 5px",
                         minHeight: 42,
@@ -451,6 +456,7 @@ function SubjectRow({
 
   return (
     <div
+      className="planner-row-subject"
       style={{
         display: "grid",
         gridTemplateColumns: GRID,
@@ -459,7 +465,7 @@ function SubjectRow({
         minWidth,
       }}
     >
-      <div style={{ padding: "6px 10px" }}>
+      <div className="planner-stick-name" style={{ padding: "6px 10px" }}>
         <button
           type="button"
           title="点击管理一级任务（改名、添加二级任务、删除）"
@@ -477,7 +483,7 @@ function SubjectRow({
           {subject.name}
         </button>
       </div>
-      <div />
+      <div className="planner-stick-hours" />
       <div
         style={{
           display: "grid",

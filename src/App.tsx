@@ -20,6 +20,7 @@ import {
   daysUntilExam,
   formatCN,
   makeSpan,
+  plannerWeekDays,
   PLAN_ORIGIN,
   spanDays,
   spanWeeks,
@@ -33,12 +34,17 @@ import { applyImport } from "./planImport";
 import {
   applyDailyHoursToDayPlans,
   dayPlanOf,
+  dayPlanCapacityError,
+  dropTaskRecords,
   generateDayPlan,
   overflowAfterShift,
   reorderSubjectTasks,
   nextTaskOrder,
   subjectOf,
   tasksOfDay,
+  writeDayHours,
+  applyHoursToStoredEntry,
+  coversDay,
 } from "./schedule";
 import { usePlanner } from "./storage";
 import type { DayEntry, PlannerData, Subject, Task, ViewKey } from "./types";
@@ -120,11 +126,11 @@ export default function App() {
     if (carryoverDismissed) return;
     const yesterday = addDays(today, -1);
     if (dayIndex(yesterday, span.origin) < 0) return;
-    const stored = data.dayPlans[yesterday];
-    if (!stored) return;
-    const pending = Object.entries(stored).filter(([, entry]) => entry.status === "pending");
+    const pending = Object.entries(dayPlanOf(data, yesterday)).filter(
+      ([, entry]) => entry.status === "pending",
+    );
     if (pending.length > 0) setCarryoverDate(yesterday);
-  }, [data.dayPlans, today, carryoverDismissed, span.origin]);
+  }, [data, today, carryoverDismissed, span.origin]);
 
   const patchTask = (taskId: string, patch: Partial<Task>, undoable = true) => {
     const apply = (current: PlannerData): PlannerData => {
@@ -169,6 +175,34 @@ export default function App() {
       ...current,
       plannedHours: { ...current.plannedHours, [dateKey]: hours },
     }));
+  };
+
+  const setDayHours = (taskId: string, dateKey: string, hours: number) => {
+    update((current) => {
+      const task = current.tasks.find((item) => item.id === taskId);
+      if (!task) return current;
+      return {
+        ...current,
+        dayHours: writeDayHours(current.dayHours, task, dateKey, hours),
+        dayPlans: applyHoursToStoredEntry(current.dayPlans, taskId, dateKey, hours),
+      };
+    });
+  };
+
+  const setWeekAverage = (taskId: string, hours: number) => {
+    update((current) => {
+      const task = current.tasks.find((item) => item.id === taskId);
+      if (!task) return current;
+      const days = plannerWeekDays(week, span);
+      let dayHours = current.dayHours ?? {};
+      let dayPlans = current.dayPlans;
+      for (const dateKey of days) {
+        if (!coversDay(task, dateKey)) continue;
+        dayHours = writeDayHours(dayHours, task, dateKey, hours);
+        dayPlans = applyHoursToStoredEntry(dayPlans, taskId, dateKey, hours);
+      }
+      return { ...current, dayHours, dayPlans };
+    });
   };
 
   const saveTask = (draft: TaskDraft) => {
@@ -332,7 +366,7 @@ export default function App() {
   };
 
   const carryoverTasks = carryoverDate
-    ? Object.entries(data.dayPlans[carryoverDate] ?? {})
+    ? Object.entries(dayPlanOf(data, carryoverDate))
         .filter(([, entry]) => entry.status === "pending")
         .map(([taskId]) => data.tasks.find((task) => task.id === taskId))
         .filter((task): task is Task => Boolean(task))
@@ -436,9 +470,7 @@ export default function App() {
         </Pill>
       </div>
 
-      {saveError ? (
-        <Callout tone="warning">这台设备存不下这份计划了。先点右上角导出备份，清一点浏览器数据后再改。</Callout>
-      ) : null}
+      {saveError ? <Callout tone="warning">{saveError}</Callout> : null}
 
       {view === "overview" ? (
         <OverviewView
@@ -490,6 +522,8 @@ export default function App() {
           onManageSubject={openSubject}
           onTaskChange={patchTask}
           onPlannedChange={setPlanned}
+          onWeekAverageChange={setWeekAverage}
+          onDayHoursChange={setDayHours}
           onCellTextChange={(key, text) =>
             update((current) => {
               const sep = key.indexOf("|");
@@ -522,7 +556,6 @@ export default function App() {
               };
             })
           }
-          onWeekStartChange={(start) => update((current) => ({ ...current, weekStart: start }))}
         />
       ) : null}
 
@@ -579,12 +612,15 @@ export default function App() {
               },
             }))
           }
-          onRegenerate={() =>
+          onRegenerate={() => {
+            const error = dayPlanCapacityError(data, dayKey);
+            if (error) return error;
             commit((current) => ({
               ...current,
               dayPlans: { ...current.dayPlans, [dayKey]: generateDayPlan(current, dayKey) },
-            }))
-          }
+            }));
+            return null;
+          }}
           onDragStart={() => commit((current) => current)}
         />
       ) : null}
@@ -656,10 +692,13 @@ export default function App() {
           confirmLabel="确认删除"
           onCancel={() => setDeleteTaskId(null)}
           onConfirm={() => {
-            commit((current) => ({
-              ...current,
-              tasks: current.tasks.filter((task) => task.id !== deleteTaskId),
-            }));
+            commit((current) => {
+              const cleaned = dropTaskRecords(current, [deleteTaskId]);
+              return {
+                ...cleaned,
+                tasks: cleaned.tasks.filter((task) => task.id !== deleteTaskId),
+              };
+            });
             setDeleteTaskId(null);
           }}
         />
@@ -674,11 +713,17 @@ export default function App() {
           confirmLabel="确认删除"
           onCancel={() => setDeleteSubjectId(null)}
           onConfirm={() => {
-            commit((current) => ({
-              ...current,
-              subjects: current.subjects.filter((subject) => subject.id !== deleteSubjectId),
-              tasks: current.tasks.filter((task) => task.subjectId !== deleteSubjectId),
-            }));
+            commit((current) => {
+              const ids = current.tasks
+                .filter((task) => task.subjectId === deleteSubjectId)
+                .map((task) => task.id);
+              const cleaned = dropTaskRecords(current, ids);
+              return {
+                ...cleaned,
+                subjects: cleaned.subjects.filter((subject) => subject.id !== deleteSubjectId),
+                tasks: cleaned.tasks.filter((task) => task.subjectId !== deleteSubjectId),
+              };
+            });
             setDeleteSubjectId(null);
           }}
         />

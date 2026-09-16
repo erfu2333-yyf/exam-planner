@@ -7,10 +7,10 @@ import {
   formatHour,
   snapHour,
 } from "../dateUtils";
-import { dayPlanOf, entryHours, placeMiscAtBottom, plannedHoursOf, subjectOf, tasksOfDay } from "../schedule";
+import { dayPlanCapacityError, dayPlanOf, entryHours, placeMiscAtBottom, plannedHoursOf, subjectOf, tasksOfDay } from "../schedule";
 import { gradientOf, tint } from "../theme";
 import type { DayEntry, DayMisc, PlannerData, TaskStatus } from "../types";
-import { Button, NumberField } from "./ui";
+import { Button, Callout, NumberField } from "./ui";
 
 const PX_PER_HOUR = 36;
 const MISC_FILL = "#8a8f98";
@@ -44,7 +44,7 @@ export function DayView({
   onSelect: (taskId: string) => void;
   onEntryChange: (taskId: string, patch: Partial<DayEntry>) => void;
   onPlannedChange: (dateKey: string, hours: number) => void;
-  onRegenerate: () => void;
+  onRegenerate: () => string | null;
   onDragStart: () => void;
   onNoteChange: (text: string) => void;
   onMoveTomorrow: (taskId: string) => void;
@@ -59,6 +59,9 @@ export function DayView({
   const [miscMenu, setMiscMenu] = useState<{ miscId: string; x: number; y: number } | null>(null);
   const [miscDraft, setMiscDraft] = useState("");
   const [miscHours, setMiscHours] = useState("1");
+  const [planError, setPlanError] = useState<string | null>(null);
+  const capacityError = dayPlanCapacityError(data, dateKey);
+  useEffect(() => setPlanError(null), [dateKey]);
 
   const plan = dayPlanOf(data, dateKey);
   const tasks = tasksOfDay(data, dateKey);
@@ -148,10 +151,16 @@ export function DayView({
           <strong style={{ fontSize: 17 }}>{formatCN(dateKey)}</strong>
           <Button onClick={() => onDateShift(1)}>后一天 →</Button>
         </div>
-        <Button onClick={onRegenerate} title="按当前日均用时重新铺排今天的时间轴">
+        <Button
+          onClick={() => setPlanError(onRegenerate())}
+          title="按当前各天用时重新铺排今天的时间轴"
+        >
           恢复默认排程
         </Button>
       </div>
+      {planError || capacityError ? (
+        <Callout tone="warning">{planError ?? capacityError}</Callout>
+      ) : null}
 
       <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2.4fr) minmax(250px, 1fr)", gap: 12 }}>
         <div className="card">

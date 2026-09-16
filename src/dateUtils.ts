@@ -18,7 +18,6 @@ export type Span = {
 };
 
 export type TimelineScale = "day" | "week" | "month";
-export type WeekStart = "sat" | "mon";
 
 export type TimelineColumn = {
   key: string;
@@ -159,15 +158,10 @@ export function phaseWeeks(totalWeeks: number): number[] {
   return marks.sort((left, right) => left - right);
 }
 
-/** 当前周表头的 7 天：周六起按规划周，周一起按含该规划周周四的自然周 */
-export function plannerWeekDays(week: number, span: Span, start: WeekStart): string[] {
+/** 当前周表头的 7 天：规划周，周六起至周五 */
+export function plannerWeekDays(week: number, span: Span): string[] {
   const saturday = weekStartKey(week, span.origin);
-  if (start === "sat") {
-    return Array.from({ length: 7 }, (_, index) => addDays(saturday, index));
-  }
-  const thursday = addDays(saturday, 5);
-  const monday = addDays(thursday, -(parseKey(thursday).getDay() - 1));
-  return Array.from({ length: 7 }, (_, index) => addDays(monday, index));
+  return Array.from({ length: 7 }, (_, index) => addDays(saturday, index));
 }
 
 export function timelineColumns(

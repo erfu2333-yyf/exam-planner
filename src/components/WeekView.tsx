@@ -5,18 +5,19 @@ import {
   plannerWeekDays,
   spanWeeks,
   type Span,
-  type WeekStart,
   weekCellKey,
+  weekEndKey,
   weekRangeLabel,
+  weekStartKey,
   weekdayShort,
 } from "../dateUtils";
-import { coversDay, overlapsRange, plannedHoursOf, scheduledHoursOf, sortSubjectTasks, subjectsOnScreen } from "../schedule";
+import { coversDay, hoursOnDay, overlapsRange, plannedHoursOf, scheduledHoursOf, sortSubjectTasks, subjectsOnScreen, weekTaskAverage } from "../schedule";
 import { colorOf, tint } from "../theme";
 import type { PlannerData, Subject, Task } from "../types";
-import { Button, Callout, NumberField, Pill } from "./ui";
+import { Button, Callout, NumberField } from "./ui";
 import { DragHandle } from "./DragHandle";
 
-const GRID = "210px 74px minmax(0, 1fr)";
+const GRID = "210px 74px minmax(784px, 1fr)";
 
 function dayClass(dateKey: string, today: string, header = false) {
   if (dateKey !== today) return undefined;
@@ -34,10 +35,11 @@ export function WeekView({
   onManageSubject,
   onTaskChange,
   onPlannedChange,
+  onWeekAverageChange,
+  onDayHoursChange,
   onCellTextChange,
   onDragStart,
   onReorder,
-  onWeekStartChange,
 }: {
   data: PlannerData;
   span: Span;
@@ -49,13 +51,13 @@ export function WeekView({
   onManageSubject: (subject: Subject) => void;
   onTaskChange: (taskId: string, patch: Partial<Task>, undoable?: boolean) => void;
   onPlannedChange: (dateKey: string, hours: number) => void;
+  onWeekAverageChange: (taskId: string, hours: number) => void;
+  onDayHoursChange: (taskId: string, dateKey: string, hours: number) => void;
   onCellTextChange: (key: string, text: string) => void;
   onDragStart: () => void;
   onReorder: (dragId: string, hoverId: string) => void;
-  onWeekStartChange: (start: WeekStart) => void;
 }) {
   const [reportOpen, setReportOpen] = useState(false);
-  const weekStart: WeekStart = data.weekStart === "mon" ? "mon" : "sat";
   const [dragId, setDragId] = useState<string | null>(null);
   useEffect(() => {
     if (!dragId) return;
@@ -76,10 +78,10 @@ export function WeekView({
   }, [dragId, onReorder]);
   const today = calendarKey();
   const totalWeeks = spanWeeks(span);
-  const days = plannerWeekDays(week, span, weekStart);
+  const days = plannerWeekDays(week, span);
   const fade = (dateKey: string) => (dateKey < today ? 0.55 : 1);
-  const weekFrom = days[0];
-  const weekTo = days[6];
+  const weekFrom = weekStartKey(week, span.origin);
+  const weekTo = weekEndKey(week, span);
   const weekTasks = data.tasks.filter((task) => overlapsRange(task, weekFrom, weekTo));
   const visibleSubjects = subjectsOnScreen(data.subjects, data.tasks, weekTasks);
 
@@ -90,28 +92,21 @@ export function WeekView({
           ← 上一周
         </Button>
         <strong style={{ fontSize: 17 }}>
-          第{week + 1}周 · {weekStart === "sat" ? weekRangeLabel(week, span) : `${formatMD(days[0])}–${formatMD(days[6])}`}
+          第{week + 1}周 · {weekRangeLabel(week, span)}
         </strong>
         <Button disabled={week === totalWeeks - 1} onClick={() => onWeekChange(week + 1)}>
           下一周 →
         </Button>
       </div>
-      <div className="row" style={{ justifyContent: "center", gap: 8 }}>
-        <Pill active={weekStart === "sat"} onClick={() => onWeekStartChange("sat")}>
-          周六至周五
-        </Pill>
-        <Pill active={weekStart === "mon"} onClick={() => onWeekStartChange("mon")}>
-          周一至周日
-        </Pill>
-      </div>
 
-      <div className="card">
+      <div className="card planner-table planner-table-week">
+        <div className="planner-table-head">
         <div style={{ display: "grid", gridTemplateColumns: GRID, background: "var(--surface-3)" }}>
-          <div style={{ padding: "8px 10px", fontWeight: 600 }}>任务 / 学法</div>
+          <div style={{ padding: "8px 10px", fontWeight: 600 }}>任务清单</div>
           <div className="small" style={{ padding: "8px 2px", fontWeight: 600, textAlign: "center" }}>
-            日均用时
+            本周日均
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(112px, 1fr))" }}>
             {days.map((dateKey) => (
               <div
                 key={dateKey}
@@ -150,7 +145,7 @@ export function WeekView({
             <div className="small muted-3">已排按日均用时累计</div>
           </div>
           <div />
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(112px, 1fr))" }}>
             {days.map((dateKey) => {
               const planned = plannedHoursOf(data, dateKey);
               const arranged = scheduledHoursOf(data, dateKey);
@@ -207,12 +202,14 @@ export function WeekView({
             })}
           </div>
         </div>
+        </div>
 
         {visibleSubjects.map((subject) => {
           const subjectTasks = weekTasks.filter((task) => task.subjectId === subject.id);
           return (
             <div key={subject.id}>
               <WeekSubjectRow
+                data={data}
                 subject={subject}
                 tasks={subjectTasks}
                 days={days}
@@ -240,7 +237,7 @@ export function WeekView({
                       gap: 5,
                       alignItems: "center",
                       flexWrap: "nowrap",
-                      overflow: "hidden",
+                      minWidth: 0,
                     }}
                   >
                       <DragHandle
@@ -283,26 +280,25 @@ export function WeekView({
                   <div
                     style={{
                       padding: "0 4px",
-                      minHeight: 42,
+                      minHeight: 78,
                       display: "flex",
                       alignItems: "center",
                       justifyContent: "center",
                     }}
                   >
                     <NumberField
-                      value={task.dailyHours}
+                      value={weekTaskAverage(data, task, days)}
                       width={58}
-                      onChange={(value) =>
-                        onTaskChange(task.id, { dailyHours: Number(value) || 0 }, false)
-                      }
+                      onChange={(value) => onWeekAverageChange(task.id, Number(value) || 0)}
+                      title="本周日均：本周总用时÷有任务的天数，只改当前周"
                     />
                   </div>
                   <div
                     style={{
                       gridColumn: 3,
                       gridRow: methodOpen ? "1 / 3" : "1",
-                      display: "grid",
-                      gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+                    display: "grid",
+                    gridTemplateColumns: "repeat(7, minmax(112px, 1fr))",
                     }}
                   >
                     {days.map((dateKey) => {
@@ -326,14 +322,24 @@ export function WeekView({
                           }}
                         >
                           {active ? (
-                            <textarea
-                              className="week-cell-input"
-                              rows={2}
-                              value={data.weekTexts[cellKey] ?? ""}
-                              placeholder={task.name}
-                              onFocus={onDragStart}
-                              onChange={(event) => onCellTextChange(cellKey, event.target.value)}
-                            />
+                            <div className="stack week-day-hours" style={{ gap: 3 }}>
+                              <NumberField
+                                value={hoursOnDay(data, task, dateKey)}
+                                width="100%"
+                                onChange={(value) =>
+                                  onDayHoursChange(task.id, dateKey, Number(value) || 0)
+                                }
+                                title="这一天这条任务的用时，只改当前周"
+                              />
+                              <textarea
+                                className="week-cell-input"
+                                rows={2}
+                                value={data.weekTexts[cellKey] ?? ""}
+                                placeholder={task.name}
+                                onFocus={onDragStart}
+                                onChange={(event) => onCellTextChange(cellKey, event.target.value)}
+                              />
+                            </div>
                           ) : (
                             <div style={{ minHeight: 44 }} />
                           )}
@@ -409,12 +415,14 @@ export function WeekView({
 }
 
 function WeekSubjectRow({
+  data,
   subject,
   tasks,
   days,
   today,
   onManage,
 }: {
+  data: PlannerData;
   subject: Subject;
   tasks: Task[];
   days: string[];
@@ -424,9 +432,13 @@ function WeekSubjectRow({
   const perDay = days.map((dateKey) =>
     tasks
       .filter((task) => coversDay(task, dateKey))
-      .reduce((sum, task) => sum + task.dailyHours, 0),
+      .reduce((sum, task) => sum + hoursOnDay(data, task, dateKey), 0),
   );
-  const average = perDay.reduce((sum, value) => sum + value, 0) / 7;
+  const activeDays = perDay.filter((value) => value > 0);
+  const average =
+    activeDays.length === 0
+      ? 0
+      : activeDays.reduce((sum, value) => sum + value, 0) / activeDays.length;
 
   return (
     <div
@@ -458,7 +470,7 @@ function WeekSubjectRow({
       <div className="small" style={{ padding: "9px 2px", textAlign: "center", fontWeight: 600 }}>
         均 {average.toFixed(1)}h
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(112px, 1fr))" }}>
         {perDay.map((value, index) => (
           <div
             key={index}
