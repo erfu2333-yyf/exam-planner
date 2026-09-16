@@ -123,6 +123,13 @@ textarea {
   background: var(--surface);
   padding: 5px 8px;
   outline: none;
+  box-sizing: border-box;
+}
+
+input.field[type="number"] {
+  height: 28px;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 
 textarea.field {

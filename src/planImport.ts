@@ -1,6 +1,7 @@
 import { PALETTE } from "./theme";
 import type { PlannerData } from "./types";
 import { snapHour } from "./dateUtils";
+import { nextTaskOrder } from "./schedule";
 
 export type ImportTask = {
   name: string;
@@ -155,6 +156,7 @@ export function applyImport(data: PlannerData, preview: ImportSubject[]): Planne
         endDate: task.endDate,
         method: task.method,
         colorId: nextColor(used, subject!.colorId),
+        order: nextTaskOrder(tasks, subject!.id),
       });
       used.add(tasks[tasks.length - 1].colorId);
     });

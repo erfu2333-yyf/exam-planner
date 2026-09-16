@@ -17,6 +17,17 @@ export type Span = {
   examDate: string;
 };
 
+export type TimelineScale = "day" | "week" | "month";
+export type WeekStart = "sat" | "mon";
+
+export type TimelineColumn = {
+  key: string;
+  label: string;
+  sublabel: string;
+  start: string;
+  end: string;
+};
+
 export function toKey(date: Date): string {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, "0");
@@ -141,10 +152,86 @@ export function todayKey(span: Span): string {
   return now;
 }
 
+/** 从规划终点往前每 4 周画一条间隔线（落在第 N 周的起点） */
 export function phaseWeeks(totalWeeks: number): number[] {
   const marks: number[] = [];
-  for (let week = 4; week < totalWeeks; week += 4) marks.push(week);
-  return marks;
+  for (let week = totalWeeks - 4; week > 0; week -= 4) marks.push(week);
+  return marks.sort((left, right) => left - right);
+}
+
+/** 当前周表头的 7 天：周六起按规划周，周一起按含该规划周周四的自然周 */
+export function plannerWeekDays(week: number, span: Span, start: WeekStart): string[] {
+  const saturday = weekStartKey(week, span.origin);
+  if (start === "sat") {
+    return Array.from({ length: 7 }, (_, index) => addDays(saturday, index));
+  }
+  const thursday = addDays(saturday, 5);
+  const monday = addDays(thursday, -(parseKey(thursday).getDay() - 1));
+  return Array.from({ length: 7 }, (_, index) => addDays(monday, index));
+}
+
+export function timelineColumns(
+  span: Span,
+  weekFrom: number,
+  weekTo: number,
+  scale: TimelineScale,
+): TimelineColumn[] {
+  const start = weekStartKey(weekFrom, span.origin);
+  const end = weekEndKey(weekTo, span);
+  if (scale === "week") {
+    return Array.from({ length: weekTo - weekFrom + 1 }, (_, index) => {
+      const week = weekFrom + index;
+      return {
+        key: `w${week}`,
+        label: String(week + 1),
+        sublabel: formatWeekSpan(week, span),
+        start: weekStartKey(week, span.origin),
+        end: weekEndKey(week, span),
+      };
+    });
+  }
+  if (scale === "day") {
+    const count = Math.max(1, diffDays(start, end) + 1);
+    return Array.from({ length: count }, (_, index) => {
+      const key = addDays(start, index);
+      return {
+        key,
+        label: String(parseKey(key).getDate()),
+        sublabel: `周${weekdayShort(key)}`,
+        start: key,
+        end: key,
+      };
+    });
+  }
+  const columns: TimelineColumn[] = [];
+  let cursor = start;
+  while (cursor <= end) {
+    const date = parseKey(cursor);
+    const monthLast = toKey(new Date(date.getFullYear(), date.getMonth() + 1, 0));
+    const colEnd = monthLast < end ? monthLast : end;
+    columns.push({
+      key: `${date.getFullYear()}-${date.getMonth() + 1}`,
+      label: `${date.getMonth() + 1}月`,
+      sublabel: `${formatMD(cursor)}–${formatMD(colEnd)}`,
+      start: cursor,
+      end: colEnd,
+    });
+    cursor = addDays(colEnd, 1);
+  }
+  return columns;
+}
+
+export function columnTrack(columns: TimelineColumn[], minPx = 0): string {
+  return columns
+    .map((column) => {
+      const days = diffDays(column.start, column.end) + 1;
+      return minPx > 0 ? `minmax(${minPx}px, ${days}fr)` : `${days}fr`;
+    })
+    .join(" ");
+}
+
+export function weekCellKey(taskId: string, dateKey: string): string {
+  return `${taskId}|${dateKey}`;
 }
 
 export function examLabel(examDate: string): string {

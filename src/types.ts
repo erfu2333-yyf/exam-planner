@@ -20,6 +20,8 @@ export type Task = {
   endDate: string;
   method: string;
   colorId: string;
+  /** 同一科目下二级任务的显示顺序，越小越靠上 */
+  order?: number;
 };
 
 export type TaskStatus = "pending" | "done" | "unfinished";

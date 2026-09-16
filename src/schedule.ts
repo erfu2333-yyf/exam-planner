@@ -7,6 +7,7 @@ import {
   diffDays,
   snapHour,
   type Span,
+  weekCellKey,
   weekEndKey,
   weekStartKey,
 } from "./dateUtils";
@@ -37,6 +38,8 @@ export function tasksOfDay(data: PlannerData, dateKey: string): Task[] {
       if (slotDelta !== 0) return slotDelta;
       const delta = orderOf(left) - orderOf(right);
       if (delta !== 0) return delta;
+      const taskDelta = (left.order ?? 0) - (right.order ?? 0);
+      if (taskDelta !== 0) return taskDelta;
       return data.tasks.indexOf(left) - data.tasks.indexOf(right);
     });
 }
@@ -82,7 +85,12 @@ export function generateDayPlan(data: PlannerData, dateKey: string): DayPlan {
     cursor = skipMeals(cursor, duration);
     if (cursor >= HOUR_END) break;
     const end = Math.min(HOUR_END, cursor + duration);
-    plan[task.id] = { start: cursor, end, note: "", status: "pending" };
+    plan[task.id] = {
+      start: cursor,
+      end,
+      note: data.weekTexts[weekCellKey(task.id, dateKey)] ?? "",
+      status: "pending",
+    };
     cursor = end;
   }
   return plan;
@@ -97,7 +105,17 @@ export function dayPlanOf(data: PlannerData, dateKey: string): DayPlan {
   const merged: DayPlan = { ...generated };
   for (const [taskId, entry] of Object.entries(stored)) {
     if (generated[taskId] || coversDay(findTask(data, taskId) ?? emptyTask, dateKey)) {
-      merged[taskId] = entry;
+      const text = data.weekTexts[weekCellKey(taskId, dateKey)] ?? "";
+      merged[taskId] = {
+        ...entry,
+        note: entry.note || text,
+      };
+    }
+  }
+  for (const [taskId, entry] of Object.entries(merged)) {
+    if (!entry.note) {
+      const text = data.weekTexts[weekCellKey(taskId, dateKey)] ?? "";
+      if (text) merged[taskId] = { ...entry, note: text };
     }
   }
   return merged;
@@ -225,4 +243,45 @@ export function clampToPeriod(key: string, origin: string, totalDays: number): s
   if (index < 0) return addDays(key, -index);
   if (index > totalDays - 1) return addDays(key, totalDays - 1 - index);
   return key;
+}
+
+export function assignTaskOrder(tasks: Task[]): Task[] {
+  const counters = new Map<string, number>();
+  return tasks.map((task) => {
+    if (typeof task.order === "number") return task;
+    const next = counters.get(task.subjectId) ?? 0;
+    counters.set(task.subjectId, next + 1);
+    return { ...task, order: next };
+  });
+}
+
+export function sortSubjectTasks(tasks: Task[]): Task[] {
+  return [...tasks].sort((left, right) => (left.order ?? 0) - (right.order ?? 0));
+}
+
+export function nextTaskOrder(tasks: Task[], subjectId: string): number {
+  const values = tasks.filter((task) => task.subjectId === subjectId).map((task) => task.order ?? 0);
+  return values.length === 0 ? 0 : Math.max(...values) + 1;
+}
+
+export function reorderSubjectTasks(
+  tasks: Task[],
+  subjectId: string,
+  dragId: string,
+  hoverId: string,
+): Task[] {
+  const ids = sortSubjectTasks(tasks.filter((task) => task.subjectId === subjectId)).map(
+    (task) => task.id,
+  );
+  const from = ids.indexOf(dragId);
+  const to = ids.indexOf(hoverId);
+  if (from < 0 || to < 0 || from === to) return tasks;
+  ids.splice(from, 1);
+  ids.splice(to, 0, dragId);
+  const rank = new Map(ids.map((id, index) => [id, index]));
+  return tasks.map((task) =>
+    task.subjectId === subjectId && rank.has(task.id)
+      ? { ...task, order: rank.get(task.id) }
+      : task,
+  );
 }

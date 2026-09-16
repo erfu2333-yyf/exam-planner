@@ -1,20 +1,22 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  addDays,
   calendarKey,
   formatMD,
+  plannerWeekDays,
   spanWeeks,
   type Span,
+  type WeekStart,
+  weekCellKey,
   weekRangeLabel,
-  weekStartKey,
   weekdayShort,
 } from "../dateUtils";
-import { coversDay, overlapsRange, plannedHoursOf, scheduledHoursOf } from "../schedule";
+import { coversDay, overlapsRange, plannedHoursOf, scheduledHoursOf, sortSubjectTasks } from "../schedule";
 import { colorOf, tint } from "../theme";
 import type { PlannerData, Subject, Task } from "../types";
-import { Button, Callout, NumberField } from "./ui";
+import { Button, Callout, NumberField, Pill } from "./ui";
+import { DragHandle } from "./DragHandle";
 
-const GRID = "150px 66px minmax(0, 1fr)";
+const GRID = "210px 74px minmax(0, 1fr)";
 
 function dayClass(dateKey: string, today: string, header = false) {
   if (dateKey !== today) return undefined;
@@ -33,6 +35,8 @@ export function WeekView({
   onTaskChange,
   onPlannedChange,
   onCellTextChange,
+  onDragStart,
+  onReorder,
 }: {
   data: PlannerData;
   span: Span;
@@ -45,11 +49,32 @@ export function WeekView({
   onTaskChange: (taskId: string, patch: Partial<Task>, undoable?: boolean) => void;
   onPlannedChange: (dateKey: string, hours: number) => void;
   onCellTextChange: (key: string, text: string) => void;
+  onDragStart: () => void;
+  onReorder: (dragId: string, hoverId: string) => void;
 }) {
   const [reportOpen, setReportOpen] = useState(false);
+  const [weekStart, setWeekStart] = useState<WeekStart>("sat");
+  const [dragId, setDragId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!dragId) return;
+    const onMove = (event: PointerEvent) => {
+      const node = document.elementFromPoint(event.clientX, event.clientY);
+      const hoverId = node instanceof Element ? node.closest("[data-task-id]")?.getAttribute("data-task-id") : null;
+      if (hoverId && hoverId !== dragId) onReorder(dragId, hoverId);
+    };
+    const stop = () => setDragId(null);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+  }, [dragId, onReorder]);
   const today = calendarKey();
   const totalWeeks = spanWeeks(span);
-  const days = Array.from({ length: 7 }, (_, index) => addDays(weekStartKey(week, span.origin), index));
+  const days = plannerWeekDays(week, span, weekStart);
   const fade = (dateKey: string) => (dateKey < today ? 0.55 : 1);
   const weekFrom = days[0];
   const weekTo = days[6];
@@ -60,16 +85,24 @@ export function WeekView({
 
   return (
     <div className="stack" style={{ gap: 12 }}>
-      <div className="row" style={{ justifyContent: "space-between" }}>
+      <div className="row" style={{ justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
         <Button disabled={week === 0} onClick={() => onWeekChange(week - 1)}>
           ← 上一周
         </Button>
         <strong style={{ fontSize: 17 }}>
-          第{week + 1}周 · {weekRangeLabel(week, span)}
+          第{week + 1}周 · {weekStart === "sat" ? weekRangeLabel(week, span) : `${formatMD(days[0])}–${formatMD(days[6])}`}
         </strong>
         <Button disabled={week === totalWeeks - 1} onClick={() => onWeekChange(week + 1)}>
           下一周 →
         </Button>
+      </div>
+      <div className="row" style={{ justifyContent: "center", gap: 8 }}>
+        <Pill active={weekStart === "sat"} onClick={() => setWeekStart("sat")}>
+          周六至周五
+        </Pill>
+        <Pill active={weekStart === "mon"} onClick={() => setWeekStart("mon")}>
+          周一至周日
+        </Pill>
       </div>
 
       <div className="card">
@@ -186,18 +219,37 @@ export function WeekView({
                 today={today}
                 onManage={() => onManageSubject(subject)}
               />
-              {subjectTasks.map((task) => {
+              {sortSubjectTasks(subjectTasks).map((task) => {
                 const methodOpen = methodId === task.id;
                 return (
                 <div
                   key={task.id}
+                  data-task-id={task.id}
                   style={{
                     display: "grid",
                     gridTemplateColumns: GRID,
                     borderTop: "1px solid var(--stroke)",
+                    background: dragId === task.id ? "var(--surface-2)" : undefined,
                   }}
                 >
-                  <div style={{ padding: "7px 8px", display: "flex", gap: 5, alignItems: "center" }}>
+                  <div
+                    style={{
+                      padding: "0 8px",
+                      minHeight: 42,
+                      display: "flex",
+                      gap: 5,
+                      alignItems: "center",
+                      flexWrap: "nowrap",
+                      overflow: "hidden",
+                    }}
+                  >
+                      <DragHandle
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          onDragStart();
+                          setDragId(task.id);
+                        }}
+                      />
                       <button
                         type="button"
                         title="双击编辑任务"
@@ -222,15 +274,24 @@ export function WeekView({
                       <button
                         type="button"
                         className={methodOpen ? "btn btn-small btn-primary" : "btn btn-small"}
+                        style={{ flexShrink: 0, height: 28 }}
                         onClick={() => onMethodToggle(task.id)}
                       >
                         学法
                       </button>
                   </div>
-                  <div style={{ padding: "7px 4px", textAlign: "center" }}>
+                  <div
+                    style={{
+                      padding: "0 4px",
+                      minHeight: 42,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
                     <NumberField
                       value={task.dailyHours}
-                      width={54}
+                      width={58}
                       onChange={(value) =>
                         onTaskChange(task.id, { dailyHours: Number(value) || 0 }, false)
                       }
@@ -246,7 +307,7 @@ export function WeekView({
                   >
                     {days.map((dateKey) => {
                       const active = coversDay(task, dateKey);
-                      const cellKey = `${task.id}|${dateKey}`;
+                      const cellKey = weekCellKey(task.id, dateKey);
                       return (
                         <div
                           key={cellKey}

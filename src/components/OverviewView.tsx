@@ -1,22 +1,31 @@
+import { useEffect, useState } from "react";
 import {
-  addDays,
+  columnTrack,
   formatMD,
-  formatWeekSpan,
   spanWeeks,
   type Span,
+  type TimelineColumn,
+  type TimelineScale,
+  timelineColumns,
   weekEndKey,
   weekStartKey,
 } from "../dateUtils";
-import { overlapsRange } from "../schedule";
+import { overlapsRange, sortSubjectTasks } from "../schedule";
 import { colorOf } from "../theme";
 import type { PlannerData, Subject, Task } from "../types";
 import { GanttBar, PhaseLines, TodayCaption, TodayLine } from "./GanttBar";
 import { ImportPanel } from "./ImportPanel";
 import { LoadChart } from "./LoadChart";
-import { Button, NumberField } from "./ui";
+import { Button, NumberField, Pill } from "./ui";
 import type { ImportSubject } from "../planImport";
+import { DragHandle } from "./DragHandle";
 
-const GRID = "170px 74px minmax(0, 1fr)";
+const GRID = "210px 74px minmax(0, 1fr)";
+const SCALES: Array<{ id: TimelineScale; label: string }> = [
+  { id: "day", label: "按天" },
+  { id: "week", label: "按周" },
+  { id: "month", label: "按月" },
+];
 
 export function OverviewView({
   data,
@@ -34,6 +43,7 @@ export function OverviewView({
   onTaskChange,
   onCapacityChange,
   onDragStart,
+  onReorder,
   onImport,
 }: {
   data: PlannerData;
@@ -51,8 +61,28 @@ export function OverviewView({
   onTaskChange: (taskId: string, patch: Partial<Task>, undoable?: boolean) => void;
   onCapacityChange: (value: number) => void;
   onDragStart: () => void;
+  onReorder: (dragId: string, hoverId: string) => void;
   onImport: (subjects: ImportSubject[]) => void;
 }) {
+  const [scale, setScale] = useState<TimelineScale>("week");
+  const [dragId, setDragId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!dragId) return;
+    const onMove = (event: PointerEvent) => {
+      const node = document.elementFromPoint(event.clientX, event.clientY);
+      const hoverId = node instanceof Element ? node.closest("[data-task-id]")?.getAttribute("data-task-id") : null;
+      if (hoverId && hoverId !== dragId) onReorder(dragId, hoverId);
+    };
+    const stop = () => setDragId(null);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", stop);
+    window.addEventListener("pointercancel", stop);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+    };
+  }, [dragId, onReorder]);
   const totalWeeks = spanWeeks(span);
   const from = Math.max(1, Math.min(totalWeeks, Number(filterFrom) || 1));
   const to = Math.max(from, Math.min(totalWeeks, Number(filterTo) || totalWeeks));
@@ -60,6 +90,8 @@ export function OverviewView({
   const weekTo = to - 1;
   const rangeFrom = weekStartKey(weekFrom, span.origin);
   const rangeTo = weekEndKey(weekTo, span);
+  const columns = timelineColumns(span, weekFrom, weekTo, scale);
+  const track = columnTrack(columns, scale === "day" ? 22 : 0);
   const visibleTasks = data.tasks.filter((task) => overlapsRange(task, rangeFrom, rangeTo));
   const visibleSubjects = data.subjects.filter((subject) =>
     visibleTasks.some((task) => task.subjectId === subject.id),
@@ -85,6 +117,12 @@ export function OverviewView({
 
       <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
         <Button onClick={onAddSubject}>＋ 添加一级任务</Button>
+        <span style={{ fontWeight: 600, marginLeft: 6 }}>显示</span>
+        {SCALES.map((item) => (
+          <Pill key={item.id} active={scale === item.id} onClick={() => setScale(item.id)}>
+            {item.label}
+          </Pill>
+        ))}
         <span style={{ fontWeight: 600, marginLeft: 6 }}>筛选</span>
         <span className="muted small">第</span>
         <NumberField
@@ -111,37 +149,50 @@ export function OverviewView({
         </span>
       </div>
 
-      <div className="card">
+      <div className="card" style={{ overflowX: scale === "day" ? "auto" : undefined }}>
         <div
           style={{
             display: "grid",
             gridTemplateColumns: GRID,
             background: "var(--surface-3)",
             borderBottom: "1px solid var(--stroke)",
+            minWidth: scale === "day" ? 720 : undefined,
           }}
         >
           <div />
           <div />
           <TodayCaption span={span} weekFrom={weekFrom} weekTo={weekTo} />
         </div>
-        <div style={{ display: "grid", gridTemplateColumns: GRID, background: "var(--surface-3)" }}>
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: GRID,
+            background: "var(--surface-3)",
+            minWidth: scale === "day" ? 720 : undefined,
+          }}
+        >
           <div style={{ padding: "9px 10px", fontWeight: 600 }}>二级任务</div>
           <div style={{ padding: "9px 4px", fontWeight: 600, textAlign: "center" }} className="small">
             日均用时
           </div>
-          <TimelineHeader span={span} weekFrom={weekFrom} weekTo={weekTo} />
+          <TimelineHeader columns={columns} track={track} span={span} weekFrom={weekFrom} weekTo={weekTo} />
         </div>
 
         {visibleSubjects.map((subject) => {
-          const subjectTasks = visibleTasks.filter((task) => task.subjectId === subject.id);
+          const subjectTasks = sortSubjectTasks(
+            visibleTasks.filter((task) => task.subjectId === subject.id),
+          );
           return (
             <div key={subject.id}>
               <SubjectRow
                 subject={subject}
                 tasks={subjectTasks}
+                columns={columns}
+                track={track}
                 span={span}
                 weekFrom={weekFrom}
                 weekTo={weekTo}
+                minWidth={scale === "day" ? 720 : undefined}
                 onManage={() => onManageSubject(subject)}
               />
               {subjectTasks.map((task) => {
@@ -149,15 +200,36 @@ export function OverviewView({
                 return (
                   <div
                     key={task.id}
+                    data-task-id={task.id}
                     style={{
                       display: "grid",
                       gridTemplateColumns: GRID,
                       borderTop: "1px solid var(--stroke)",
                       background:
-                        task.id === selectedId ? "var(--surface-2)" : "var(--surface)",
+                        task.id === selectedId || dragId === task.id
+                          ? "var(--surface-2)"
+                          : "var(--surface)",
+                      minWidth: scale === "day" ? 720 : undefined,
                     }}
                   >
-                    <div style={{ padding: "7px 9px", display: "flex", gap: 5, alignItems: "center" }}>
+                    <div
+                      style={{
+                        padding: "0 9px",
+                        minHeight: 42,
+                        display: "flex",
+                        gap: 5,
+                        alignItems: "center",
+                        flexWrap: "nowrap",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <DragHandle
+                        onPointerDown={(event) => {
+                          event.preventDefault();
+                          onDragStart();
+                          setDragId(task.id);
+                        }}
+                      />
                       <button
                         type="button"
                         title="双击编辑名称、起止日期和颜色"
@@ -183,12 +255,21 @@ export function OverviewView({
                       <button
                         type="button"
                         className={methodOpen ? "btn btn-small btn-primary" : "btn btn-small"}
+                        style={{ flexShrink: 0, height: 28 }}
                         onClick={() => onMethodToggle(task.id)}
                       >
                         学法
                       </button>
                     </div>
-                    <div style={{ padding: "7px 5px", textAlign: "center" }}>
+                    <div
+                      style={{
+                        padding: "0 5px",
+                        minHeight: 42,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
                       <NumberField
                         value={task.dailyHours}
                         width={58}
@@ -209,6 +290,7 @@ export function OverviewView({
                         span={span}
                         weekFrom={weekFrom}
                         weekTo={weekTo}
+                        scale={scale}
                         selected={task.id === selectedId}
                         onSelect={() => onSelect(task.id)}
                         onDragStart={onDragStart}
@@ -245,7 +327,7 @@ export function OverviewView({
       </div>
 
       <div className="muted small">
-        双击任务名称改名称、起止日期和颜色；甘特条可整条拖动，拖两端改起止日期。
+        左侧六点可上下拖动换二级任务顺序；双击名称改起止和颜色；甘特条可整条拖动，拖两端改起止日期。
       </div>
 
       <ImportPanel data={data} span={span} onImport={onImport} />
@@ -254,39 +336,43 @@ export function OverviewView({
 }
 
 function TimelineHeader({
+  columns,
+  track,
   span,
   weekFrom,
   weekTo,
 }: {
+  columns: TimelineColumn[];
+  track: string;
   span: Span;
   weekFrom: number;
   weekTo: number;
 }) {
-  const weeks = Array.from({ length: weekTo - weekFrom + 1 }, (_, index) => weekFrom + index);
+  const compact = columns.length > 20;
   return (
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))`,
+        gridTemplateColumns: track,
         position: "relative",
       }}
     >
-      {weeks.map((week) => (
+      {columns.map((column) => (
         <div
-          key={week}
+          key={column.key}
           style={{
-            padding: "5px 2px",
+            padding: compact ? "5px 0" : "5px 2px",
             textAlign: "center",
             borderLeft: "1px solid var(--stroke)",
           }}
         >
           <div className="small" style={{ fontWeight: 600 }}>
-            {week + 1}
+            {column.label}
           </div>
-          <div className="small muted-3">{formatWeekSpan(week, span)}</div>
+          {compact ? null : <div className="small muted-3">{column.sublabel}</div>}
         </div>
       ))}
-      <PhaseLines weekFrom={weekFrom} weekTo={weekTo} />
+      <PhaseLines span={span} weekFrom={weekFrom} weekTo={weekTo} />
       <TodayLine span={span} weekFrom={weekFrom} weekTo={weekTo} />
     </div>
   );
@@ -295,26 +381,29 @@ function TimelineHeader({
 function SubjectRow({
   subject,
   tasks,
+  columns,
+  track,
   span,
   weekFrom,
   weekTo,
+  minWidth,
   onManage,
 }: {
   subject: Subject;
   tasks: Task[];
+  columns: TimelineColumn[];
+  track: string;
   span: Span;
   weekFrom: number;
   weekTo: number;
+  minWidth?: number;
   onManage: () => void;
 }) {
-  const weeks = Array.from({ length: weekTo - weekFrom + 1 }, (_, index) => weekFrom + index);
-  const weeklyValues = weeks.map((week) => {
-    const from = weekStartKey(week, span.origin);
-    const to = addDays(from, 6);
-    return tasks
-      .filter((task) => overlapsRange(task, from, to))
-      .reduce((sum, task) => sum + task.dailyHours, 0);
-  });
+  const values = columns.map((column) =>
+    tasks
+      .filter((task) => overlapsRange(task, column.start, column.end))
+      .reduce((sum, task) => sum + task.dailyHours, 0),
+  );
 
   return (
     <div
@@ -323,6 +412,7 @@ function SubjectRow({
         gridTemplateColumns: GRID,
         background: "var(--surface-2)",
         borderTop: "2px solid var(--stroke-strong)",
+        minWidth,
       }}
     >
       <div style={{ padding: "6px 10px" }}>
@@ -347,13 +437,13 @@ function SubjectRow({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))`,
+          gridTemplateColumns: track,
           position: "relative",
         }}
       >
-        {weeklyValues.map((value, index) => (
+        {values.map((value, index) => (
           <div
-            key={weeks[index]}
+            key={columns[index].key}
             className="small"
             style={{
               padding: "7px 2px",
@@ -363,7 +453,7 @@ function SubjectRow({
               color: value > 0 ? "var(--text)" : "var(--text-3)",
             }}
           >
-            {value > 0 ? `${value.toFixed(1)}h` : "–"}
+            {columns.length > 20 ? "" : value > 0 ? `${value.toFixed(1)}h` : "–"}
           </div>
         ))}
         <TodayLine span={span} weekFrom={weekFrom} weekTo={weekTo} />

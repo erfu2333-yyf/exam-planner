@@ -26,6 +26,7 @@ import {
   todayKey,
   weekOfIndex,
   weeksAndDays,
+  weekCellKey,
 } from "./dateUtils";
 import { planToMarkdown } from "./exportPlan";
 import { applyImport } from "./planImport";
@@ -34,6 +35,8 @@ import {
   dayPlanOf,
   generateDayPlan,
   overflowAfterShift,
+  reorderSubjectTasks,
+  nextTaskOrder,
   subjectOf,
   tasksOfDay,
 } from "./schedule";
@@ -140,12 +143,17 @@ export default function App() {
       const plan = dayPlanOf(current, dateKey);
       const entry = plan[taskId];
       if (!entry) return current;
+      const next = { ...entry, ...patch };
       return {
         ...current,
         dayPlans: {
           ...current.dayPlans,
-          [dateKey]: { ...plan, [taskId]: { ...entry, ...patch } },
+          [dateKey]: { ...plan, [taskId]: next },
         },
+        weekTexts:
+          patch.note != null
+            ? { ...current.weekTexts, [weekCellKey(taskId, dateKey)]: patch.note }
+            : current.weekTexts,
       };
     });
   };
@@ -182,7 +190,7 @@ export default function App() {
       }
       return {
         ...current,
-        tasks: [...current.tasks, { id: `task-${Date.now()}`, method: "", ...fields }],
+        tasks: [...current.tasks, { id: `task-${Date.now()}`, method: "", order: nextTaskOrder(current.tasks, draft.subjectId), ...fields }],
       };
     });
     setTaskDraft(null);
@@ -434,6 +442,16 @@ export default function App() {
           onTaskChange={patchTask}
           onCapacityChange={(capacity) => update((current) => ({ ...current, capacity }))}
           onDragStart={() => commit((current) => current)}
+          onReorder={(dragId, hoverId) =>
+            update((current) => {
+              const drag = current.tasks.find((task) => task.id === dragId);
+              if (!drag) return current;
+              return {
+                ...current,
+                tasks: reorderSubjectTasks(current.tasks, drag.subjectId, dragId, hoverId),
+              };
+            })
+          }
           onImport={(subjects) => commit((current) => applyImport(current, subjects))}
         />
       ) : null}
@@ -453,10 +471,36 @@ export default function App() {
           onTaskChange={patchTask}
           onPlannedChange={setPlanned}
           onCellTextChange={(key, text) =>
-            update((current) => ({
-              ...current,
-              weekTexts: { ...current.weekTexts, [key]: text },
-            }))
+            update((current) => {
+              const sep = key.indexOf("|");
+              const taskId = key.slice(0, sep);
+              const dateKey = key.slice(sep + 1);
+              const stored = current.dayPlans[dateKey];
+              return {
+                ...current,
+                weekTexts: { ...current.weekTexts, [key]: text },
+                dayPlans: stored?.[taskId]
+                  ? {
+                      ...current.dayPlans,
+                      [dateKey]: {
+                        ...stored,
+                        [taskId]: { ...stored[taskId], note: text },
+                      },
+                    }
+                  : current.dayPlans,
+              };
+            })
+          }
+          onDragStart={() => commit((current) => current)}
+          onReorder={(dragId, hoverId) =>
+            update((current) => {
+              const drag = current.tasks.find((task) => task.id === dragId);
+              if (!drag) return current;
+              return {
+                ...current,
+                tasks: reorderSubjectTasks(current.tasks, drag.subjectId, dragId, hoverId),
+              };
+            })
           }
         />
       ) : null}

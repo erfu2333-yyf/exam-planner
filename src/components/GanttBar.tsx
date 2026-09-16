@@ -3,7 +3,11 @@ import {
   dayIndex,
   keyFromIndex,
   phaseWeeks,
+  spanWeeks,
   type Span,
+  type TimelineColumn,
+  type TimelineScale,
+  timelineColumns,
   todayLinePercent,
   weekEndKey,
   weekStartKey,
@@ -14,17 +18,20 @@ import type { Task } from "../types";
 type DragMode = "move" | "start" | "end";
 
 export function PhaseLines({
+  span,
   weekFrom,
   weekTo,
 }: {
-  span?: Span;
+  span: Span;
   weekFrom: number;
   weekTo: number;
 }) {
-  const visible = weekTo - weekFrom + 1;
+  const rangeStart = weekStartKey(weekFrom, span.origin);
+  const rangeLast = weekEndKey(weekTo, span);
+  const rangeDays = Math.max(1, dayIndex(rangeLast, rangeStart) + 1);
   return (
     <>
-      {phaseWeeks(weekTo + 1)
+      {phaseWeeks(spanWeeks(span))
         .filter((week) => week > weekFrom && week <= weekTo)
         .map((week) => (
           <div
@@ -33,7 +40,7 @@ export function PhaseLines({
               position: "absolute",
               top: 0,
               bottom: 0,
-              left: `${((week - weekFrom) / visible) * 100}%`,
+              left: `${(dayIndex(weekStartKey(week, span.origin), rangeStart) / rangeDays) * 100}%`,
               borderLeft: "2px solid var(--stroke-strong)",
               pointerEvents: "none",
               zIndex: 2,
@@ -44,22 +51,36 @@ export function PhaseLines({
   );
 }
 
-export function WeekGridLines({ count }: { count: number }) {
+export function ColumnGridLines({
+  columns,
+  rangeStart,
+  rangeLast,
+}: {
+  columns: TimelineColumn[];
+  rangeStart: string;
+  rangeLast: string;
+}) {
+  const rangeDays = Math.max(1, dayIndex(rangeLast, rangeStart) + 1);
+  let passed = 0;
   return (
     <>
-      {Array.from({ length: count }, (_, week) => (
-        <div
-          key={week}
-          style={{
-            position: "absolute",
-            top: 0,
-            bottom: 0,
-            left: `${(week / count) * 100}%`,
-            borderLeft: "1px solid var(--stroke)",
-            pointerEvents: "none",
-          }}
-        />
-      ))}
+      {columns.map((column) => {
+        const left = (passed / rangeDays) * 100;
+        passed += dayIndex(column.end, column.start) + 1;
+        return (
+          <div
+            key={column.key}
+            style={{
+              position: "absolute",
+              top: 0,
+              bottom: 0,
+              left: `${left}%`,
+              borderLeft: "1px solid var(--stroke)",
+              pointerEvents: "none",
+            }}
+          />
+        );
+      })}
     </>
   );
 }
@@ -143,6 +164,7 @@ export function GanttBar({
   span,
   weekFrom,
   weekTo,
+  scale = "week",
   selected,
   onSelect,
   onDragStart,
@@ -152,6 +174,7 @@ export function GanttBar({
   span: Span;
   weekFrom: number;
   weekTo: number;
+  scale?: TimelineScale;
   selected: boolean;
   onSelect: () => void;
   onDragStart: () => void;
@@ -159,6 +182,7 @@ export function GanttBar({
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ mode: DragMode; grabOffset: number } | null>(null);
+  const columns = timelineColumns(span, weekFrom, weekTo, scale);
   const rangeStart = weekStartKey(weekFrom, span.origin);
   const rangeLast = weekEndKey(weekTo, span);
   const rangeDays = Math.max(1, dayIndex(rangeLast, rangeStart) + 1);
@@ -167,7 +191,6 @@ export function GanttBar({
   const visStart = dayIndex(rangeStart, span.origin);
   const left = (dayIndex(task.startDate, rangeStart) / rangeDays) * 100;
   const width = ((endIndex - startIndex + 1) / rangeDays) * 100;
-  const weekCount = weekTo - weekFrom + 1;
   const totalDays = dayIndex(span.examDate, span.origin) + 1;
 
   const indexFromClientX = (clientX: number): number => {
@@ -231,7 +254,7 @@ export function GanttBar({
         overflow: "hidden",
       }}
     >
-      <WeekGridLines count={weekCount} />
+      <ColumnGridLines columns={columns} rangeStart={rangeStart} rangeLast={rangeLast} />
       <div
         onPointerDown={begin("move")}
         onPointerMove={move}
@@ -283,7 +306,7 @@ export function GanttBar({
           }}
         />
       </div>
-      <PhaseLines weekFrom={weekFrom} weekTo={weekTo} />
+      <PhaseLines span={span} weekFrom={weekFrom} weekTo={weekTo} />
       <TodayLine span={span} weekFrom={weekFrom} weekTo={weekTo} />
     </div>
   );

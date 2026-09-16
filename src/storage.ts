@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { INITIAL_DATA } from "./data";
 import { DEFAULT_EXAM_DATE } from "./dateUtils";
+import { assignTaskOrder } from "./schedule";
 import type { DayMisc, PlannerData } from "./types";
 import { dataKey } from "./workspace";
 
@@ -19,7 +20,7 @@ function parsePlanner(raw: string | null): PlannerData {
     const parsed = JSON.parse(raw) as Partial<PlannerData>;
     return {
       subjects: parsed.subjects ?? INITIAL_DATA.subjects,
-      tasks: parsed.tasks ?? INITIAL_DATA.tasks,
+      tasks: assignTaskOrder(parsed.tasks ?? INITIAL_DATA.tasks),
       dayPlans: parsed.dayPlans ?? {},
       plannedHours: parsed.plannedHours ?? {},
       weekTexts: parsed.weekTexts ?? {},
