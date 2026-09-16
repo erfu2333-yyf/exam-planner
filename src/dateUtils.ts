@@ -3,22 +3,19 @@
  * 它会按 UTC 转换，在东八区会把日期倒退一天。
  */
 
-/** 周期起点，周六 */
-export const ORIGIN = "2026-09-12";
-/** 考试日，周六 */
-export const EXAM_DATE = "2026-12-19";
-/** 最后复习截止时刻 */
-export const DEADLINE_LABEL = "12/18 22:00";
-export const TOTAL_WEEKS = 14;
-export const TOTAL_DAYS = TOTAL_WEEKS * 7;
-/** 周六起、周五止 */
-export const WEEK_DAY_LABELS = ["六", "日", "一", "二", "三", "四", "五"];
-/** 在第 2、6、10 周之后画阶段分界线（每四周一段） */
-export const PHASE_AFTER_WEEKS = [4, 8, 12];
+/** 默认考试日，可被计划里的 examDate 覆盖 */
+export const DEFAULT_EXAM_DATE = "2026-12-19";
+/** 总览固定起点：2026-09-12 周六，按周六至周五倒推，第 1 周收到 9/18 */
+export const PLAN_ORIGIN = "2026-09-12";
 
 export const HOUR_START = 7;
 export const HOUR_END = 24;
 export const BOLD_HOURS = [12, 18, 24];
+
+export type Span = {
+  origin: string;
+  examDate: string;
+};
 
 export function toKey(date: Date): string {
   const year = date.getFullYear();
@@ -44,22 +41,49 @@ export function diffDays(from: string, to: string): number {
   return Math.round((b.getTime() - a.getTime()) / 86400000);
 }
 
-/** 距周期起点的天数，可能为负或超过 97 */
-export function dayIndex(key: string): number {
-  return diffDays(ORIGIN, key);
+/** 本机日历上的今天 */
+export function calendarKey(): string {
+  return toKey(new Date());
 }
 
-export function keyFromIndex(index: number): string {
-  return addDays(ORIGIN, index);
+/** 周期从固定周六起点排到事项日前一天（含） */
+export function makeSpan(eventDate: string): Span {
+  const event = eventDate >= PLAN_ORIGIN ? eventDate : PLAN_ORIGIN;
+  const last = addDays(event, -1);
+  return { origin: PLAN_ORIGIN, examDate: last >= PLAN_ORIGIN ? last : PLAN_ORIGIN };
 }
 
-/** 天序号所属周序号，0 起 */
+export function spanDays(span: Span): number {
+  return Math.max(1, diffDays(span.origin, span.examDate) + 1);
+}
+
+export function spanWeeks(span: Span): number {
+  return Math.ceil(spanDays(span) / 7);
+}
+
+export function lastKey(span: Span): string {
+  return span.examDate;
+}
+
+export function dayIndex(key: string, origin: string): number {
+  return diffDays(origin, key);
+}
+
+export function keyFromIndex(index: number, origin: string): string {
+  return addDays(origin, index);
+}
+
 export function weekOfIndex(index: number): number {
   return Math.floor(index / 7);
 }
 
-export function weekStartKey(week: number): string {
-  return keyFromIndex(week * 7);
+export function weekStartKey(week: number, origin: string): string {
+  return keyFromIndex(week * 7, origin);
+}
+
+export function weekEndKey(week: number, span: Span): string {
+  const end = addDays(weekStartKey(week, span.origin), 6);
+  return end < span.examDate ? end : span.examDate;
 }
 
 export function formatMD(key: string): string {
@@ -73,36 +97,33 @@ export function formatCN(key: string): string {
   return `${date.getMonth() + 1}月${date.getDate()}日 ${names[date.getDay()]}`;
 }
 
-export function weekRangeLabel(week: number): string {
-  return `${formatMD(weekStartKey(week))}–${formatMD(addDays(weekStartKey(week), 6))}`;
+export function weekdayShort(key: string): string {
+  return ["日", "一", "二", "三", "四", "五", "六"][parseKey(key).getDay()];
+}
+
+export function weekRangeLabel(week: number, span: Span): string {
+  return `${formatMD(weekStartKey(week, span.origin))}–${formatMD(weekEndKey(week, span))}`;
 }
 
 /** 总览表头用的简写，同月写成 10/1–7，跨月写成 9/26–10/2 */
-export function formatWeekSpan(week: number): string {
-  const from = parseKey(weekStartKey(week));
-  const to = parseKey(addDays(weekStartKey(week), 6));
+export function formatWeekSpan(week: number, span: Span): string {
+  const from = parseKey(weekStartKey(week, span.origin));
+  const to = parseKey(weekEndKey(week, span));
   const start = `${from.getMonth() + 1}/${from.getDate()}`;
   if (from.getMonth() === to.getMonth()) return `${start}–${to.getDate()}`;
   return `${start}–${to.getMonth() + 1}/${to.getDate()}`;
 }
 
-export function daysUntilExam(todayKey: string): number {
-  return Math.max(0, diffDays(todayKey, EXAM_DATE));
+export function daysUntilExam(today: string, examDate: string): number {
+  return Math.max(0, diffDays(today, examDate));
 }
 
-/** 「95天（13周余4天）」里的括号部分 */
 export function weeksAndDays(days: number): string {
   const weeks = Math.floor(days / 7);
   const rest = days % 7;
   return rest === 0 ? `${weeks}周` : `${weeks}周余${rest}天`;
 }
 
-/** 本机日历上的今天，不夹到备考周期里，给倒计时用 */
-export function calendarKey(): string {
-  return toKey(new Date());
-}
-
-/** 把小时数取整到半小时 */
 export function snapHour(value: number): number {
   return Math.round(value * 2) / 2;
 }
@@ -113,11 +134,30 @@ export function formatHour(value: number): string {
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
 }
 
-/** 今天；超出周期范围时夹到周期内，保证界面始终有内容 */
-export function todayKey(): string {
-  const now = toKey(new Date());
-  const index = dayIndex(now);
-  if (index < 0) return ORIGIN;
-  if (index > TOTAL_DAYS - 1) return keyFromIndex(TOTAL_DAYS - 1);
+export function todayKey(span: Span): string {
+  const now = calendarKey();
+  if (now < span.origin) return span.origin;
+  if (now > span.examDate) return span.examDate;
   return now;
+}
+
+export function phaseWeeks(totalWeeks: number): number[] {
+  const marks: number[] = [];
+  for (let week = 4; week < totalWeeks; week += 4) marks.push(week);
+  return marks;
+}
+
+export function examLabel(examDate: string): string {
+  const date = parseKey(examDate);
+  return `${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+/** 总览可见周范围内，「今天」竖线的位置（百分比）。今天不在范围内则返回 null */
+export function todayLinePercent(span: Span, weekFrom: number, weekTo: number): number | null {
+  const today = calendarKey();
+  const rangeStart = weekStartKey(weekFrom, span.origin);
+  const rangeLast = weekEndKey(weekTo, span);
+  if (today < rangeStart || today > rangeLast) return null;
+  const rangeDays = Math.max(1, dayIndex(rangeLast, rangeStart) + 1);
+  return (dayIndex(today, rangeStart) / rangeDays) * 100;
 }

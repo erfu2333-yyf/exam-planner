@@ -1,21 +1,26 @@
 import {
-  TOTAL_WEEKS,
   addDays,
   formatMD,
   formatWeekSpan,
+  spanWeeks,
+  type Span,
+  weekEndKey,
   weekStartKey,
 } from "../dateUtils";
 import { overlapsRange } from "../schedule";
 import { colorOf } from "../theme";
 import type { PlannerData, Subject, Task } from "../types";
-import { GanttBar, PhaseLines } from "./GanttBar";
+import { GanttBar, PhaseLines, TodayCaption, TodayLine } from "./GanttBar";
+import { ImportPanel } from "./ImportPanel";
 import { LoadChart } from "./LoadChart";
 import { Button, NumberField } from "./ui";
+import type { ImportSubject } from "../planImport";
 
 const GRID = "170px 74px minmax(0, 1fr)";
 
 export function OverviewView({
   data,
+  span,
   selectedId,
   methodId,
   filterFrom,
@@ -29,8 +34,10 @@ export function OverviewView({
   onTaskChange,
   onCapacityChange,
   onDragStart,
+  onImport,
 }: {
   data: PlannerData;
+  span: Span;
   selectedId: string | null;
   methodId: string | null;
   filterFrom: string;
@@ -44,11 +51,15 @@ export function OverviewView({
   onTaskChange: (taskId: string, patch: Partial<Task>, undoable?: boolean) => void;
   onCapacityChange: (value: number) => void;
   onDragStart: () => void;
+  onImport: (subjects: ImportSubject[]) => void;
 }) {
-  const from = Math.max(1, Math.min(TOTAL_WEEKS, Number(filterFrom) || 1));
-  const to = Math.max(from, Math.min(TOTAL_WEEKS, Number(filterTo) || TOTAL_WEEKS));
-  const rangeFrom = weekStartKey(from - 1);
-  const rangeTo = addDays(weekStartKey(to - 1), 6);
+  const totalWeeks = spanWeeks(span);
+  const from = Math.max(1, Math.min(totalWeeks, Number(filterFrom) || 1));
+  const to = Math.max(from, Math.min(totalWeeks, Number(filterTo) || totalWeeks));
+  const weekFrom = from - 1;
+  const weekTo = to - 1;
+  const rangeFrom = weekStartKey(weekFrom, span.origin);
+  const rangeTo = weekEndKey(weekTo, span);
   const visibleTasks = data.tasks.filter((task) => overlapsRange(task, rangeFrom, rangeTo));
   const visibleSubjects = data.subjects.filter((subject) =>
     visibleTasks.some((task) => task.subjectId === subject.id),
@@ -69,7 +80,7 @@ export function OverviewView({
             <span className="muted">小时</span>
           </div>
         </div>
-        <LoadChart data={data} />
+        <LoadChart data={data} span={span} weekFrom={weekFrom} weekTo={weekTo} />
       </section>
 
       <div className="row" style={{ flexWrap: "wrap", gap: 8 }}>
@@ -92,21 +103,33 @@ export function OverviewView({
           onChange={(value) => onFilterChange(filterFrom, value)}
         />
         <span className="muted small">周</span>
-        <Button small onClick={() => onFilterChange("1", String(TOTAL_WEEKS))}>
+        <Button small onClick={() => onFilterChange("1", String(totalWeeks))}>
           重置
         </Button>
         <span className="muted-3 small">
-          只显示与 {formatMD(rangeFrom)}–{formatMD(rangeTo)} 有交集的任务
+          只显示第{from}–{to}周（{formatMD(rangeFrom)}–{formatMD(rangeTo)}）
         </span>
       </div>
 
       <div className="card">
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: GRID,
+            background: "var(--surface-3)",
+            borderBottom: "1px solid var(--stroke)",
+          }}
+        >
+          <div />
+          <div />
+          <TodayCaption span={span} weekFrom={weekFrom} weekTo={weekTo} />
+        </div>
         <div style={{ display: "grid", gridTemplateColumns: GRID, background: "var(--surface-3)" }}>
           <div style={{ padding: "9px 10px", fontWeight: 600 }}>二级任务</div>
           <div style={{ padding: "9px 4px", fontWeight: 600, textAlign: "center" }} className="small">
             日均用时
           </div>
-          <TimelineHeader />
+          <TimelineHeader span={span} weekFrom={weekFrom} weekTo={weekTo} />
         </div>
 
         {visibleSubjects.map((subject) => {
@@ -116,21 +139,25 @@ export function OverviewView({
               <SubjectRow
                 subject={subject}
                 tasks={subjectTasks}
+                span={span}
+                weekFrom={weekFrom}
+                weekTo={weekTo}
                 onManage={() => onManageSubject(subject)}
               />
-              {subjectTasks.map((task) => (
-                <div
-                  key={task.id}
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: GRID,
-                    borderTop: "1px solid var(--stroke)",
-                    background:
-                      task.id === selectedId ? "var(--surface-2)" : "var(--surface)",
-                  }}
-                >
-                  <div style={{ padding: "7px 9px", display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div className="row" style={{ gap: 5 }}>
+              {subjectTasks.map((task) => {
+                const methodOpen = methodId === task.id;
+                return (
+                  <div
+                    key={task.id}
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: GRID,
+                      borderTop: "1px solid var(--stroke)",
+                      background:
+                        task.id === selectedId ? "var(--surface-2)" : "var(--surface)",
+                    }}
+                  >
+                    <div style={{ padding: "7px 9px", display: "flex", gap: 5, alignItems: "center" }}>
                       <button
                         type="button"
                         title="双击编辑名称、起止日期和颜色"
@@ -155,44 +182,57 @@ export function OverviewView({
                       </button>
                       <button
                         type="button"
-                        className={methodId === task.id ? "btn btn-small btn-primary" : "btn btn-small"}
+                        className={methodOpen ? "btn btn-small btn-primary" : "btn btn-small"}
                         onClick={() => onMethodToggle(task.id)}
                       >
                         学法
                       </button>
                     </div>
-                    {methodId === task.id ? (
-                      <textarea
-                        className="field"
-                        rows={3}
-                        value={task.method}
-                        placeholder="用一两句话记录学法…"
-                        onChange={(event) =>
-                          onTaskChange(task.id, { method: event.target.value }, false)
+                    <div style={{ padding: "7px 5px", textAlign: "center" }}>
+                      <NumberField
+                        value={task.dailyHours}
+                        width={58}
+                        onChange={(value) =>
+                          onTaskChange(task.id, { dailyHours: Number(value) || 0 }, false)
                         }
                       />
+                    </div>
+                    <div
+                      style={{
+                        gridColumn: 3,
+                        gridRow: methodOpen ? "1 / 3" : "1",
+                        minHeight: 36,
+                      }}
+                    >
+                      <GanttBar
+                        task={task}
+                        span={span}
+                        weekFrom={weekFrom}
+                        weekTo={weekTo}
+                        selected={task.id === selectedId}
+                        onSelect={() => onSelect(task.id)}
+                        onDragStart={onDragStart}
+                        onDragMove={(startDate, endDate) =>
+                          onTaskChange(task.id, { startDate, endDate }, false)
+                        }
+                      />
+                    </div>
+                    {methodOpen ? (
+                      <div style={{ gridColumn: "1 / 3", gridRow: 2, padding: "0 9px 8px" }}>
+                        <textarea
+                          className="field"
+                          rows={3}
+                          value={task.method}
+                          placeholder="用一两句话记录学法…"
+                          onChange={(event) =>
+                            onTaskChange(task.id, { method: event.target.value }, false)
+                          }
+                        />
+                      </div>
                     ) : null}
                   </div>
-                  <div style={{ padding: "7px 5px", textAlign: "center" }}>
-                    <NumberField
-                      value={task.dailyHours}
-                      width={58}
-                      onChange={(value) =>
-                        onTaskChange(task.id, { dailyHours: Number(value) || 0 }, false)
-                      }
-                    />
-                  </div>
-                  <GanttBar
-                    task={task}
-                    selected={task.id === selectedId}
-                    onSelect={() => onSelect(task.id)}
-                    onDragStart={onDragStart}
-                    onDragMove={(startDate, endDate) =>
-                      onTaskChange(task.id, { startDate, endDate }, false)
-                    }
-                  />
-                </div>
-              ))}
+                );
+              })}
             </div>
           );
         })}
@@ -207,20 +247,31 @@ export function OverviewView({
       <div className="muted small">
         双击任务名称改名称、起止日期和颜色；甘特条可整条拖动，拖两端改起止日期。
       </div>
+
+      <ImportPanel data={data} span={span} onImport={onImport} />
     </div>
   );
 }
 
-function TimelineHeader() {
+function TimelineHeader({
+  span,
+  weekFrom,
+  weekTo,
+}: {
+  span: Span;
+  weekFrom: number;
+  weekTo: number;
+}) {
+  const weeks = Array.from({ length: weekTo - weekFrom + 1 }, (_, index) => weekFrom + index);
   return (
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: `repeat(${TOTAL_WEEKS}, minmax(0, 1fr))`,
+        gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))`,
         position: "relative",
       }}
     >
-      {Array.from({ length: TOTAL_WEEKS }, (_, week) => (
+      {weeks.map((week) => (
         <div
           key={week}
           style={{
@@ -232,10 +283,11 @@ function TimelineHeader() {
           <div className="small" style={{ fontWeight: 600 }}>
             {week + 1}
           </div>
-          <div className="small muted-3">{formatWeekSpan(week)}</div>
+          <div className="small muted-3">{formatWeekSpan(week, span)}</div>
         </div>
       ))}
-      <PhaseLines />
+      <PhaseLines weekFrom={weekFrom} weekTo={weekTo} />
+      <TodayLine span={span} weekFrom={weekFrom} weekTo={weekTo} />
     </div>
   );
 }
@@ -243,14 +295,21 @@ function TimelineHeader() {
 function SubjectRow({
   subject,
   tasks,
+  span,
+  weekFrom,
+  weekTo,
   onManage,
 }: {
   subject: Subject;
   tasks: Task[];
+  span: Span;
+  weekFrom: number;
+  weekTo: number;
   onManage: () => void;
 }) {
-  const weeklyValues = Array.from({ length: TOTAL_WEEKS }, (_, week) => {
-    const from = weekStartKey(week);
+  const weeks = Array.from({ length: weekTo - weekFrom + 1 }, (_, index) => weekFrom + index);
+  const weeklyValues = weeks.map((week) => {
+    const from = weekStartKey(week, span.origin);
     const to = addDays(from, 6);
     return tasks
       .filter((task) => overlapsRange(task, from, to))
@@ -288,12 +347,13 @@ function SubjectRow({
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: `repeat(${TOTAL_WEEKS}, minmax(0, 1fr))`,
+          gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))`,
+          position: "relative",
         }}
       >
-        {weeklyValues.map((value, week) => (
+        {weeklyValues.map((value, index) => (
           <div
-            key={week}
+            key={weeks[index]}
             className="small"
             style={{
               padding: "7px 2px",
@@ -306,6 +366,7 @@ function SubjectRow({
             {value > 0 ? `${value.toFixed(1)}h` : "–"}
           </div>
         ))}
+        <TodayLine span={span} weekFrom={weekFrom} weekTo={weekTo} />
       </div>
       <div style={{ gridColumn: "1 / -1", borderBottom: `3px solid ${colorOf(subject.colorId)}` }} />
     </div>

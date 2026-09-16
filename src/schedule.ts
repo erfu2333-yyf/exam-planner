@@ -1,6 +1,16 @@
 import { DEFAULT_PLANNED_HOURS } from "./data";
-import { HOUR_END, HOUR_START, addDays, dayIndex, diffDays, snapHour } from "./dateUtils";
-import type { DayEntry, DayPlan, PlannerData, Subject, Task } from "./types";
+import {
+  HOUR_END,
+  HOUR_START,
+  addDays,
+  dayIndex,
+  diffDays,
+  snapHour,
+  type Span,
+  weekEndKey,
+  weekStartKey,
+} from "./dateUtils";
+import type { DayEntry, DayMisc, DayPlan, PlannerData, Subject, Task } from "./types";
 
 /** 任务是否覆盖某一天 */
 export function coversDay(task: Task, dateKey: string): boolean {
@@ -16,16 +26,33 @@ export function subjectOf(data: PlannerData, subjectId: string): Subject | undef
   return data.subjects.find((subject) => subject.id === subjectId);
 }
 
-/** 某天所有生效的任务，按「英语最早、政治最晚」排序 */
+/** 某天所有生效的任务：先按上午/下午/晚上偏好，再按科目顺序 */
 export function tasksOfDay(data: PlannerData, dateKey: string): Task[] {
   const orderOf = (task: Task) => subjectOf(data, task.subjectId)?.order ?? 50;
+  const slotOf = (task: Task) => timeSlot(task, subjectOf(data, task.subjectId));
   return data.tasks
     .filter((task) => coversDay(task, dateKey))
     .sort((left, right) => {
+      const slotDelta = slotOf(left) - slotOf(right);
+      if (slotDelta !== 0) return slotDelta;
       const delta = orderOf(left) - orderOf(right);
       if (delta !== 0) return delta;
       return data.tasks.indexOf(left) - data.tasks.indexOf(right);
     });
+}
+
+function timeSlot(task: Task, subject: Subject | undefined): number {
+  const blob = `${task.method} ${task.name} ${subject?.name ?? ""}`;
+  if ((subject && subject.order >= 9) || /晚上|夜里|夜间/.test(blob)) return 2;
+  if (/下午/.test(blob)) return 1;
+  return 0;
+}
+
+function preferredStart(task: Task, subject: Subject | undefined): number {
+  const slot = timeSlot(task, subject);
+  if (slot === 2) return 19;
+  if (slot === 1) return 13;
+  return HOUR_START;
 }
 
 const LUNCH: [number, number] = [12, 13];
@@ -43,7 +70,7 @@ function skipMeals(cursor: number, duration: number): number {
 
 /**
  * 按任务顺序自动铺排一天的时间轴。
- * 政治不早于 19:00，其余从 7:00 起依次往后。
+ * 学法/科目里写了上午、下午、晚上的，会尽量排进对应时段；政治默认晚上。
  */
 export function generateDayPlan(data: PlannerData, dateKey: string): DayPlan {
   const plan: DayPlan = {};
@@ -51,7 +78,7 @@ export function generateDayPlan(data: PlannerData, dateKey: string): DayPlan {
   for (const task of tasksOfDay(data, dateKey)) {
     const duration = Math.max(0.5, task.dailyHours);
     const subject = subjectOf(data, task.subjectId);
-    if (subject && subject.order >= 9 && cursor < 19) cursor = 19;
+    cursor = Math.max(cursor, preferredStart(task, subject));
     cursor = skipMeals(cursor, duration);
     if (cursor >= HOUR_END) break;
     const end = Math.min(HOUR_END, cursor + duration);
@@ -141,10 +168,10 @@ export function plannedHoursOf(data: PlannerData, dateKey: string): number {
 }
 
 /** 某周每天的日均负荷（按任务 dailyHours 累加，用于总览柱状图） */
-export function weekLoad(data: PlannerData, week: number): Map<string, number> {
+export function weekLoad(data: PlannerData, week: number, span: Span): Map<string, number> {
   const result = new Map<string, number>();
-  const from = addDays("2026-09-12", week * 7);
-  const to = addDays(from, 6);
+  const from = weekStartKey(week, span.origin);
+  const to = weekEndKey(week, span);
   for (const subject of data.subjects) {
     const hours = data.tasks
       .filter((task) => task.subjectId === subject.id && overlapsRange(task, from, to))
@@ -154,10 +181,22 @@ export function weekLoad(data: PlannerData, week: number): Map<string, number> {
   return result;
 }
 
-export function weekTotal(data: PlannerData, week: number): number {
+export function weekTotal(data: PlannerData, week: number, span: Span): number {
   let total = 0;
-  for (const hours of weekLoad(data, week).values()) total += hours;
+  for (const hours of weekLoad(data, week, span).values()) total += hours;
   return total;
+}
+
+/** 杂事从时间轴底部往上叠，互不影响总览和周历 */
+export function placeMiscAtBottom(existing: DayMisc[], hours: number): { start: number; end: number } {
+  const duration = Math.max(0.5, snapHour(hours));
+  let end = HOUR_END;
+  const sorted = [...existing].sort((left, right) => right.end - left.end);
+  for (const item of sorted) {
+    if (item.end > end - duration && item.start < end) end = Math.min(end, item.start);
+  }
+  const start = Math.min(HOUR_END - duration, Math.max(HOUR_START, snapHour(end - duration)));
+  return { start, end: start + duration };
 }
 
 /** 把任务整体后移若干天，不越过周期末尾 */
@@ -181,8 +220,8 @@ export function overflowAfterShift(
   return tasks.filter((task) => diffDays(task.endDate, maxEndKey) < days);
 }
 
-export function clampToPeriod(key: string, totalDays: number): string {
-  const index = dayIndex(key);
+export function clampToPeriod(key: string, origin: string, totalDays: number): string {
+  const index = dayIndex(key, origin);
   if (index < 0) return addDays(key, -index);
   if (index > totalDays - 1) return addDays(key, totalDays - 1 - index);
   return key;

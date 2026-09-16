@@ -24,6 +24,15 @@ export type Task = {
 
 export type TaskStatus = "pending" | "done" | "unfinished";
 
+/** 只存在某一天的杂事，不进入总览和周历 */
+export type DayMisc = {
+  id: string;
+  name: string;
+  start: number;
+  end: number;
+  status: TaskStatus;
+};
+
 export type DayEntry = {
   /** 小时，支持半小时，如 7.5 */
   start: number;
@@ -46,6 +55,12 @@ export type PlannerData = {
   weekTexts: Record<string, string>;
   /** dateKey -> 当天整段总结 */
   dayNotes: Record<string, string>;
+  /** dateKey -> 当天杂事，不影响总览和周历 */
+  dayMiscs: Record<string, DayMisc[]>;
+  /** 规划事项名称，默认「考研」，用在页顶倒计时 */
+  eventName: string;
+  /** 规划事项日期，总览从固定起点排到这一天 */
+  examDate: string;
   /** 每天可用总时长，超过就算超负荷 */
   capacity: number;
 };

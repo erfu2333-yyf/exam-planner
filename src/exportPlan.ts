@@ -23,7 +23,7 @@ export function planToMarkdown(data: PlannerData, ownerName: string): string {
           .join("\n")
       : "- 无";
 
-  return `请根据下面这份考研备考计划给出具体建议。周期按周六到周五，不要编造计划里没有的任务。建议先说结论，再说明改哪一项、改成多少。
+  return `请根据下面这份考研备考计划给出具体建议。周期按周六到周五，起点固定，不要编造计划里没有的任务。建议先说结论，再说明改哪一项、改成多少。
 
 # ${ownerName} 的备考计划
 - 今天：${snap.today}

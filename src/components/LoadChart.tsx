@@ -1,13 +1,27 @@
-import { TOTAL_WEEKS, weekRangeLabel } from "../dateUtils";
+import { spanWeeks, type Span, weekRangeLabel } from "../dateUtils";
 import { weekLoad, weekTotal } from "../schedule";
 import { colorOf } from "../theme";
 import type { PlannerData } from "../types";
+import { TodayLine } from "./GanttBar";
 
 const BAR_AREA = 96;
 
-export function LoadChart({ data }: { data: PlannerData }) {
-  const weeks = Array.from({ length: TOTAL_WEEKS }, (_, index) => index);
-  const totals = weeks.map((week) => weekTotal(data, week));
+export function LoadChart({
+  data,
+  span,
+  weekFrom,
+  weekTo,
+}: {
+  data: PlannerData;
+  span: Span;
+  weekFrom: number;
+  weekTo: number;
+}) {
+  const totalWeeks = spanWeeks(span);
+  const from = Math.max(0, Math.min(totalWeeks - 1, weekFrom));
+  const to = Math.max(from, Math.min(totalWeeks - 1, weekTo));
+  const weeks = Array.from({ length: to - from + 1 }, (_, index) => from + index);
+  const totals = weeks.map((week) => weekTotal(data, week, span));
   const max = Math.max(data.capacity, ...totals, 1);
 
   return (
@@ -41,20 +55,20 @@ export function LoadChart({ data }: { data: PlannerData }) {
       <div
         style={{
           display: "grid",
-          gridTemplateColumns: `repeat(${TOTAL_WEEKS}, minmax(0, 1fr))`,
+          gridTemplateColumns: `repeat(${weeks.length}, minmax(0, 1fr))`,
           gap: 5,
           height: "100%",
         }}
       >
-        {weeks.map((week) => {
-          const total = totals[week];
-          const load = weekLoad(data, week);
+        {weeks.map((week, index) => {
+          const total = totals[index];
+          const load = weekLoad(data, week, span);
           const over = total > data.capacity;
           return (
             <div
               key={week}
               style={{ position: "relative", height: "100%", textAlign: "center" }}
-              title={`第${week + 1}周 ${weekRangeLabel(week)} · 日均 ${total.toFixed(1)}h`}
+              title={`第${week + 1}周 ${weekRangeLabel(week, span)} · 日均 ${total.toFixed(1)}h`}
             >
               <span
                 className="small"
@@ -107,6 +121,7 @@ export function LoadChart({ data }: { data: PlannerData }) {
           );
         })}
       </div>
+      <TodayLine span={span} weekFrom={from} weekTo={to} />
     </div>
   );
 }

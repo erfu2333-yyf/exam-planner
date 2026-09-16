@@ -1,42 +1,60 @@
 import { useRef } from "react";
-import { PHASE_AFTER_WEEKS, TOTAL_DAYS, TOTAL_WEEKS, dayIndex, keyFromIndex } from "../dateUtils";
+import {
+  dayIndex,
+  keyFromIndex,
+  phaseWeeks,
+  type Span,
+  todayLinePercent,
+  weekEndKey,
+  weekStartKey,
+} from "../dateUtils";
 import { gradientOf } from "../theme";
 import type { Task } from "../types";
 
 type DragMode = "move" | "start" | "end";
 
-export function PhaseLines() {
+export function PhaseLines({
+  weekFrom,
+  weekTo,
+}: {
+  span?: Span;
+  weekFrom: number;
+  weekTo: number;
+}) {
+  const visible = weekTo - weekFrom + 1;
   return (
     <>
-      {PHASE_AFTER_WEEKS.map((week) => (
-        <div
-          key={week}
-          style={{
-            position: "absolute",
-            top: 0,
-            bottom: 0,
-            left: `${(week / TOTAL_WEEKS) * 100}%`,
-            borderLeft: "2px solid var(--stroke-strong)",
-            pointerEvents: "none",
-            zIndex: 2,
-          }}
-        />
-      ))}
+      {phaseWeeks(weekTo + 1)
+        .filter((week) => week > weekFrom && week <= weekTo)
+        .map((week) => (
+          <div
+            key={week}
+            style={{
+              position: "absolute",
+              top: 0,
+              bottom: 0,
+              left: `${((week - weekFrom) / visible) * 100}%`,
+              borderLeft: "2px solid var(--stroke-strong)",
+              pointerEvents: "none",
+              zIndex: 2,
+            }}
+          />
+        ))}
     </>
   );
 }
 
-export function WeekGridLines() {
+export function WeekGridLines({ count }: { count: number }) {
   return (
     <>
-      {Array.from({ length: TOTAL_WEEKS }, (_, week) => (
+      {Array.from({ length: count }, (_, week) => (
         <div
           key={week}
           style={{
             position: "absolute",
             top: 0,
             bottom: 0,
-            left: `${(week / TOTAL_WEEKS) * 100}%`,
+            left: `${(week / count) * 100}%`,
             borderLeft: "1px solid var(--stroke)",
             pointerEvents: "none",
           }}
@@ -46,34 +64,118 @@ export function WeekGridLines() {
   );
 }
 
+export function TodayLine({
+  span,
+  weekFrom,
+  weekTo,
+}: {
+  span: Span;
+  weekFrom: number;
+  weekTo: number;
+}) {
+  const percent = todayLinePercent(span, weekFrom, weekTo);
+  if (percent == null) return null;
+  return (
+    <div
+      title="今天"
+      style={{
+        position: "absolute",
+        top: 0,
+        bottom: 0,
+        left: `${percent}%`,
+        borderLeft: "2px dashed var(--accent)",
+        pointerEvents: "none",
+        zIndex: 5,
+      }}
+    />
+  );
+}
+
+/** 甘特表头上方单独一行，把「今天」标在竖线位置，避免和周次数字叠在一起 */
+export function TodayCaption({
+  span,
+  weekFrom,
+  weekTo,
+}: {
+  span: Span;
+  weekFrom: number;
+  weekTo: number;
+}) {
+  const percent = todayLinePercent(span, weekFrom, weekTo);
+  if (percent == null) return <div style={{ height: 28 }} />;
+  return (
+    <div style={{ position: "relative", height: 28 }}>
+      <div
+        style={{
+          position: "absolute",
+          top: 22,
+          bottom: 0,
+          left: `${percent}%`,
+          borderLeft: "2px dashed var(--accent)",
+          pointerEvents: "none",
+        }}
+      />
+      <span
+        className="small"
+        style={{
+          position: "absolute",
+          top: 4,
+          left: `${percent}%`,
+          transform: "translateX(-50%)",
+          fontWeight: 700,
+          color: "#fff",
+          background: "var(--accent)",
+          padding: "0 8px",
+          borderRadius: 10,
+          lineHeight: "20px",
+          whiteSpace: "nowrap",
+          zIndex: 6,
+        }}
+      >
+        今天
+      </span>
+    </div>
+  );
+}
+
 export function GanttBar({
   task,
+  span,
+  weekFrom,
+  weekTo,
   selected,
   onSelect,
   onDragStart,
   onDragMove,
 }: {
   task: Task;
+  span: Span;
+  weekFrom: number;
+  weekTo: number;
   selected: boolean;
   onSelect: () => void;
-  /** 拖动开始时记一次快照，便于撤销 */
   onDragStart: () => void;
   onDragMove: (startDate: string, endDate: string) => void;
 }) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const dragRef = useRef<{ mode: DragMode; grabOffset: number } | null>(null);
-
-  const startIndex = dayIndex(task.startDate);
-  const endIndex = dayIndex(task.endDate);
-  const left = (startIndex / TOTAL_DAYS) * 100;
-  const width = ((endIndex - startIndex + 1) / TOTAL_DAYS) * 100;
+  const rangeStart = weekStartKey(weekFrom, span.origin);
+  const rangeLast = weekEndKey(weekTo, span);
+  const rangeDays = Math.max(1, dayIndex(rangeLast, rangeStart) + 1);
+  const startIndex = dayIndex(task.startDate, span.origin);
+  const endIndex = dayIndex(task.endDate, span.origin);
+  const visStart = dayIndex(rangeStart, span.origin);
+  const left = (dayIndex(task.startDate, rangeStart) / rangeDays) * 100;
+  const width = ((endIndex - startIndex + 1) / rangeDays) * 100;
+  const weekCount = weekTo - weekFrom + 1;
+  const totalDays = dayIndex(span.examDate, span.origin) + 1;
 
   const indexFromClientX = (clientX: number): number => {
     const track = trackRef.current;
     if (!track) return startIndex;
     const rect = track.getBoundingClientRect();
     const ratio = (clientX - rect.left) / rect.width;
-    return Math.round(ratio * TOTAL_DAYS);
+    return visStart + Math.round(ratio * rangeDays);
   };
 
   const begin = (mode: DragMode) => (event: React.PointerEvent) => {
@@ -96,21 +198,21 @@ export function GanttBar({
     const drag = dragRef.current;
     if (!drag) return;
     const pointerIndex = indexFromClientX(event.clientX);
-    const clamp = (value: number) => Math.max(0, Math.min(TOTAL_DAYS - 1, value));
+    const clamp = (value: number) => Math.max(0, Math.min(totalDays - 1, value));
 
     if (drag.mode === "move") {
-      const span = endIndex - startIndex;
-      const nextStart = clamp(Math.min(pointerIndex - drag.grabOffset, TOTAL_DAYS - 1 - span));
-      onDragMove(keyFromIndex(nextStart), keyFromIndex(nextStart + span));
+      const taskSpan = endIndex - startIndex;
+      const nextStart = clamp(Math.min(pointerIndex - drag.grabOffset, totalDays - 1 - taskSpan));
+      onDragMove(keyFromIndex(nextStart, span.origin), keyFromIndex(nextStart + taskSpan, span.origin));
       return;
     }
     if (drag.mode === "start") {
       const nextStart = clamp(Math.min(pointerIndex, endIndex));
-      onDragMove(keyFromIndex(nextStart), task.endDate);
+      onDragMove(keyFromIndex(nextStart, span.origin), task.endDate);
       return;
     }
     const nextEnd = clamp(Math.max(pointerIndex, startIndex));
-    onDragMove(task.startDate, keyFromIndex(nextEnd));
+    onDragMove(task.startDate, keyFromIndex(nextEnd, span.origin));
   };
 
   const end = (event: React.PointerEvent) => {
@@ -124,10 +226,12 @@ export function GanttBar({
       style={{
         position: "relative",
         minHeight: 36,
+        height: "100%",
         background: "var(--surface-2)",
+        overflow: "hidden",
       }}
     >
-      <WeekGridLines />
+      <WeekGridLines count={weekCount} />
       <div
         onPointerDown={begin("move")}
         onPointerMove={move}
@@ -136,7 +240,7 @@ export function GanttBar({
         style={{
           position: "absolute",
           left: `${left}%`,
-          width: `${width}%`,
+          width: `${Math.max(width, 0.8)}%`,
           top: 8,
           height: 20,
           borderRadius: 6,
@@ -179,7 +283,8 @@ export function GanttBar({
           }}
         />
       </div>
-      <PhaseLines />
+      <PhaseLines weekFrom={weekFrom} weekTo={weekTo} />
+      <TodayLine span={span} weekFrom={weekFrom} weekTo={weekTo} />
     </div>
   );
 }

@@ -1,12 +1,11 @@
 import {
-  EXAM_DATE,
-  ORIGIN,
-  TOTAL_DAYS,
-  TOTAL_WEEKS,
-  addDays,
   calendarKey,
   daysUntilExam,
+  examLabel,
+  makeSpan,
   snapHour,
+  spanWeeks,
+  weekEndKey,
   weekStartKey,
 } from "./dateUtils";
 import { applyDailyHoursToDayPlans, dayPlanOf, findTask, weekTotal } from "./schedule";
@@ -61,17 +60,17 @@ export type PlanSnapshot = {
   }>;
 };
 
-const LAST_DAY = addDays(ORIGIN, TOTAL_DAYS - 1);
-
 export function buildPlanSnapshot(data: PlannerData): PlanSnapshot {
+  const span = makeSpan(data.examDate);
   const today = calendarKey();
-  const weeks = Array.from({ length: TOTAL_WEEKS }, (_, week) => {
-    const from = weekStartKey(week);
-    const hours = Math.round(weekTotal(data, week) * 10) / 10;
+  const totalWeeks = spanWeeks(span);
+  const weeks = Array.from({ length: totalWeeks }, (_, week) => {
+    const from = weekStartKey(week, span.origin);
+    const hours = Math.round(weekTotal(data, week, span) * 10) / 10;
     return {
       week: week + 1,
       from,
-      to: addDays(from, 6),
+      to: weekEndKey(week, span),
       hours,
       overload: hours > data.capacity + 0.05,
     };
@@ -79,10 +78,10 @@ export function buildPlanSnapshot(data: PlannerData): PlanSnapshot {
   const todayPlan = dayPlanOf(data, today);
   return {
     today,
-    examDate: EXAM_DATE,
-    daysLeft: daysUntilExam(today),
+    examDate: data.examDate,
+    daysLeft: daysUntilExam(today, data.examDate),
     capacity: data.capacity,
-    calendar: "周六至周五为一周，共14周，起点2026-09-12，考试2026-12-19",
+    calendar: `周六至周五为一周，起点 ${span.origin}，排到 ${span.examDate}，事项日 ${data.examDate}（${examLabel(data.examDate)}）`,
     weeks,
     subjects: data.subjects.map((subject) => ({ id: subject.id, name: subject.name })),
     tasks: data.tasks.map((task) => ({
@@ -104,14 +103,15 @@ export function buildPlanSnapshot(data: PlannerData): PlanSnapshot {
   };
 }
 
-function clampDate(key: string | undefined, fallback: string): string {
+function clampDate(key: string | undefined, fallback: string, origin: string, lastDay: string): string {
   if (!key || !/^\d{4}-\d{2}-\d{2}$/.test(key)) return fallback;
-  if (key < ORIGIN) return ORIGIN;
-  if (key > LAST_DAY) return LAST_DAY;
+  if (key < origin) return origin;
+  if (key > lastDay) return lastDay;
   return key;
 }
 
 export function applySuggestion(data: PlannerData, action: SuggestionAction): PlannerData {
+  const span = makeSpan(data.examDate);
   if (action.type === "setCapacity") {
     const capacity = Math.min(18, Math.max(4, snapHour(action.capacity)));
     return { ...data, capacity };
@@ -140,8 +140,8 @@ export function applySuggestion(data: PlannerData, action: SuggestionAction): Pl
   }
   const task = findTask(data, action.taskId);
   if (!task) return data;
-  let startDate = clampDate(action.startDate, task.startDate);
-  let endDate = clampDate(action.endDate, task.endDate);
+  let startDate = clampDate(action.startDate, task.startDate, span.origin, span.examDate);
+  let endDate = clampDate(action.endDate, task.endDate, span.origin, span.examDate);
   if (endDate < startDate) {
     const swap = startDate;
     startDate = endDate;

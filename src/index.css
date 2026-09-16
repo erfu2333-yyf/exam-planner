@@ -125,6 +125,12 @@ textarea {
   outline: none;
 }
 
+textarea.field {
+  width: 100%;
+  min-width: 0;
+  display: block;
+}
+
 .field:focus {
   border-color: var(--accent);
 }
@@ -140,6 +146,16 @@ textarea {
 .field-plain:focus {
   background: rgba(255, 255, 255, 0.72);
   border-radius: 4px;
+}
+
+.week-today {
+  background: rgba(59, 109, 255, 0.11);
+  box-shadow: inset 0 0 0 1px rgba(59, 109, 255, 0.28);
+}
+
+.week-today-head {
+  background: rgba(59, 109, 255, 0.16);
+  box-shadow: inset 0 3px 0 var(--accent);
 }
 
 .week-cell-input {

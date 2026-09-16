@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { INITIAL_DATA } from "./data";
-import type { PlannerData } from "./types";
+import { DEFAULT_EXAM_DATE } from "./dateUtils";
+import type { DayMisc, PlannerData } from "./types";
 import { dataKey } from "./workspace";
 
 /**
@@ -23,11 +24,29 @@ function parsePlanner(raw: string | null): PlannerData {
       plannedHours: parsed.plannedHours ?? {},
       weekTexts: parsed.weekTexts ?? {},
       dayNotes: parsed.dayNotes ?? {},
+      dayMiscs: normalizeMiscs(parsed.dayMiscs),
+      eventName: parsed.eventName?.trim() || "考研",
+      examDate: parsed.examDate ?? DEFAULT_EXAM_DATE,
       capacity: parsed.capacity ?? INITIAL_DATA.capacity,
     };
   } catch {
     return INITIAL_DATA;
   }
+}
+
+function normalizeMiscs(raw: PlannerData["dayMiscs"] | undefined): Record<string, DayMisc[]> {
+  if (!raw) return {};
+  const leftover = new Set(["取快递", "寄材料"]);
+  const result: Record<string, DayMisc[]> = {};
+  for (const [dateKey, items] of Object.entries(raw)) {
+    const kept = items.filter((item) => {
+      const name = item.name?.trim() ?? "";
+      if (!name || leftover.has(name)) return false;
+      return typeof item.start === "number" && typeof item.end === "number";
+    });
+    if (kept.length > 0) result[dateKey] = kept;
+  }
+  return result;
 }
 
 export function createRepository(spaceId: string): Repository {

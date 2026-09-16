@@ -1,3 +1,4 @@
+import { DEFAULT_EXAM_DATE } from "./dateUtils";
 import type { PlannerData, Subject, Task } from "./types";
 
 /** order 决定每日排程的先后：英语最早，政治最晚 */
@@ -182,5 +183,8 @@ export const INITIAL_DATA: PlannerData = {
   plannedHours: {},
   weekTexts: {},
   dayNotes: {},
+  dayMiscs: {},
+  eventName: "考研",
+  examDate: DEFAULT_EXAM_DATE,
   capacity: 12,
 };

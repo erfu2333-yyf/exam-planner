@@ -12,23 +12,23 @@ import {
 import { OverviewView } from "./components/OverviewView";
 import { WeekView } from "./components/WeekView";
 import { WorkspaceGate } from "./components/WorkspaceGate";
-import { Button, Callout, Modal, Pill } from "./components/ui";
+import { Button, Callout, Modal, Pill, TextField } from "./components/ui";
 import {
-  DEADLINE_LABEL,
-  EXAM_DATE,
-  TOTAL_DAYS,
-  TOTAL_WEEKS,
   addDays,
   calendarKey,
   dayIndex,
   daysUntilExam,
   formatCN,
-  keyFromIndex,
+  makeSpan,
+  PLAN_ORIGIN,
+  spanDays,
+  spanWeeks,
   todayKey,
   weekOfIndex,
   weeksAndDays,
 } from "./dateUtils";
 import { planToMarkdown } from "./exportPlan";
+import { applyImport } from "./planImport";
 import {
   applyDailyHoursToDayPlans,
   dayPlanOf,
@@ -39,9 +39,7 @@ import {
 } from "./schedule";
 import { usePlanner } from "./storage";
 import type { DayEntry, PlannerData, Subject, Task, ViewKey } from "./types";
-import { siteHomeUrl, useWorkspace } from "./workspace";
-
-const LAST_DAY = keyFromIndex(TOTAL_DAYS - 1);
+import { useWorkspace } from "./workspace";
 
 export default function App() {
   const workspace = useWorkspace();
@@ -50,13 +48,20 @@ export default function App() {
   const [exportText, setExportText] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  const span = makeSpan(data.examDate);
+  const lastDay = span.examDate;
+  const totalDays = spanDays(span);
+  const totalWeeks = spanWeeks(span);
+
   const [view, setView] = useState<ViewKey>("overview");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [methodId, setMethodId] = useState<string | null>(null);
-  const [week, setWeek] = useState(() => weekOfIndex(dayIndex(todayKey())));
-  const [dayKey, setDayKey] = useState(() => todayKey());
+  const [week, setWeek] = useState(() =>
+    Math.max(0, weekOfIndex(dayIndex(calendarKey(), PLAN_ORIGIN))),
+  );
+  const [dayKey, setDayKey] = useState(() => calendarKey());
   const [filterFrom, setFilterFrom] = useState("1");
-  const [filterTo, setFilterTo] = useState(String(TOTAL_WEEKS));
+  const [filterTo, setFilterTo] = useState("");
 
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
   const [subjectDraft, setSubjectDraft] = useState<SubjectDraft | null>(null);
@@ -66,8 +71,9 @@ export default function App() {
   const [carryoverDate, setCarryoverDate] = useState<string | null>(null);
   const [carryoverDismissed, setCarryoverDismissed] = useState(false);
 
-  const today = todayKey();
-  const daysLeft = daysUntilExam(calendarKey());
+  const today = todayKey(span);
+  const eventName = data.eventName?.trim() || "考研";
+  const daysLeft = daysUntilExam(calendarKey(), data.examDate);
 
   useEffect(() => {
     const refresh = () => setNow(Date.now());
@@ -82,6 +88,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    setWeek((current) => Math.min(current, Math.max(0, totalWeeks - 1)));
+    setDayKey((key) => {
+      if (key < span.origin) return span.origin;
+      if (key > span.examDate) return span.examDate;
+      return key;
+    });
+  }, [span.origin, span.examDate, totalWeeks]);
+
+  useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
@@ -92,16 +107,15 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [undo]);
 
-  // 昨天有没打勾的任务时弹窗询问怎么处理
   useEffect(() => {
     if (carryoverDismissed) return;
     const yesterday = addDays(today, -1);
-    if (dayIndex(yesterday) < 0) return;
+    if (dayIndex(yesterday, span.origin) < 0) return;
     const stored = data.dayPlans[yesterday];
     if (!stored) return;
     const pending = Object.entries(stored).filter(([, entry]) => entry.status === "pending");
     if (pending.length > 0) setCarryoverDate(yesterday);
-  }, [data.dayPlans, today, carryoverDismissed]);
+  }, [data.dayPlans, today, carryoverDismissed, span.origin]);
 
   const patchTask = (taskId: string, patch: Partial<Task>, undoable = true) => {
     const apply = (current: PlannerData): PlannerData => {
@@ -206,7 +220,7 @@ export default function App() {
       name: "",
       dailyHours: "1",
       startDate: today,
-      endDate: LAST_DAY,
+      endDate: lastDay,
       colorId: subject?.colorId ?? "blue",
     });
   };
@@ -236,13 +250,12 @@ export default function App() {
     );
   };
 
-  /** 把某个任务的结束日期整体往后推，用于「挪到明天」 */
   const pushTaskLater = (taskId: string, days: number) => {
     commit((current) => ({
       ...current,
       tasks: current.tasks.map((task) =>
         task.id === taskId
-          ? { ...task, endDate: minKey(addDays(task.endDate, days), LAST_DAY) }
+          ? { ...task, endDate: minKey(addDays(task.endDate, days), lastDay) }
           : task,
       ),
     }));
@@ -255,7 +268,7 @@ export default function App() {
       const todayEntry = todayPlan[taskId];
       const tasks = current.tasks.map((task) =>
         task.id === taskId
-          ? { ...task, endDate: minKey(addDays(task.endDate, 1), LAST_DAY) }
+          ? { ...task, endDate: minKey(addDays(task.endDate, 1), lastDay) }
           : task,
       );
       const shifted = { ...current, tasks };
@@ -265,7 +278,7 @@ export default function App() {
           ? { ...todayPlan, [taskId]: { ...todayEntry, status: "unfinished" } }
           : todayPlan,
       };
-      if (dayIndex(tomorrow) >= 0 && dayIndex(tomorrow) < TOTAL_DAYS) {
+      if (dayIndex(tomorrow, span.origin) >= 0 && dayIndex(tomorrow, span.origin) < totalDays) {
         const tomorrowPlan = dayPlanOf(shifted, tomorrow);
         const tomorrowEntry = tomorrowPlan[taskId];
         if (tomorrowEntry) {
@@ -283,9 +296,8 @@ export default function App() {
     });
   };
 
-  /** 整体计划后移，越界的任务先警告 */
   const shiftWholePlan = (days: number) => {
-    const overflow = overflowAfterShift(data.tasks, days, LAST_DAY);
+    const overflow = overflowAfterShift(data.tasks, days, lastDay);
     if (overflow.length > 0) {
       setShiftWarning(overflow);
       return;
@@ -298,8 +310,8 @@ export default function App() {
       ...current,
       tasks: current.tasks.map((task) => ({
         ...task,
-        startDate: minKey(addDays(task.startDate, days), LAST_DAY),
-        endDate: minKey(addDays(task.endDate, days), LAST_DAY),
+        startDate: minKey(addDays(task.startDate, days), lastDay),
+        endDate: minKey(addDays(task.endDate, days), lastDay),
       })),
     }));
     setShiftWarning(null);
@@ -333,10 +345,29 @@ export default function App() {
     <div style={{ maxWidth: 1480, margin: "0 auto", padding: "14px 16px 60px" }}>
       <header style={{ textAlign: "center", position: "relative", padding: "6px 0 14px" }}>
         <div style={{ fontSize: 40, fontWeight: 800, lineHeight: 1.2 }}>
-          距离考研 {daysLeft} 天（{weeksAndDays(daysLeft)}）
+          距离{eventName} {daysLeft} 天（{weeksAndDays(daysLeft)}）
         </div>
-        <div className="muted">
-          考试 {EXAM_DATE.slice(5).replace("-", "月")}日 · 周期按周六至周五 · 截止 {DEADLINE_LABEL}
+        <div
+          className="row small muted"
+          style={{ justifyContent: "center", gap: 10, marginTop: 8, flexWrap: "wrap" }}
+        >
+          <span>规划事项</span>
+          <TextField
+            value={data.eventName ?? "考研"}
+            placeholder="考研"
+            width={108}
+            onChange={(value) => update((current) => ({ ...current, eventName: value }))}
+          />
+          <span>事项时间</span>
+          <TextField
+            type="date"
+            value={data.examDate}
+            width={148}
+            onChange={(value) => {
+              if (!value) return;
+              update((current) => ({ ...current, examDate: value }));
+            }}
+          />
         </div>
         <div
           className="row small"
@@ -364,7 +395,7 @@ export default function App() {
         <Pill
           active={view === "week"}
           onClick={() => {
-            setWeek(weekOfIndex(dayIndex(today)));
+            setWeek(weekOfIndex(dayIndex(today, span.origin)));
             setView("week");
           }}
         >
@@ -384,10 +415,11 @@ export default function App() {
       {view === "overview" ? (
         <OverviewView
           data={data}
+          span={span}
           selectedId={selectedId}
           methodId={methodId}
           filterFrom={filterFrom}
-          filterTo={filterTo}
+          filterTo={filterTo || String(totalWeeks)}
           onSelect={setSelectedId}
           onMethodToggle={(taskId) =>
             setMethodId((current) => (current === taskId ? null : taskId))
@@ -402,12 +434,14 @@ export default function App() {
           onTaskChange={patchTask}
           onCapacityChange={(capacity) => update((current) => ({ ...current, capacity }))}
           onDragStart={() => commit((current) => current)}
+          onImport={(subjects) => commit((current) => applyImport(current, subjects))}
         />
       ) : null}
 
       {view === "week" ? (
         <WeekView
           data={data}
+          span={span}
           week={week}
           methodId={methodId}
           onWeekChange={setWeek}
@@ -434,8 +468,8 @@ export default function App() {
           selectedId={selectedId}
           onDateShift={(days) => {
             const next = addDays(dayKey, days);
-            const index = dayIndex(next);
-            if (index >= 0 && index < TOTAL_DAYS) setDayKey(next);
+            const index = dayIndex(next, span.origin);
+            if (index >= 0 && index < totalDays) setDayKey(next);
           }}
           onSelect={setSelectedId}
           onEntryChange={(taskId, patch) => patchEntry(dayKey, taskId, patch)}
@@ -448,6 +482,38 @@ export default function App() {
           }
           onMoveTomorrow={(taskId) => moveTaskToTomorrow(dayKey, taskId)}
           onShiftPlan={() => shiftWholePlan(1)}
+          onAddMisc={(name, start, end) =>
+            update((current) => ({
+              ...current,
+              dayMiscs: {
+                ...current.dayMiscs,
+                [dayKey]: [
+                  ...(current.dayMiscs[dayKey] ?? []),
+                  { id: `misc-${Date.now()}`, name, start, end, status: "pending" },
+                ],
+              },
+            }))
+          }
+          onPatchMisc={(miscId, patch) =>
+            update((current) => ({
+              ...current,
+              dayMiscs: {
+                ...current.dayMiscs,
+                [dayKey]: (current.dayMiscs[dayKey] ?? []).map((item) =>
+                  item.id === miscId ? { ...item, ...patch } : item,
+                ),
+              },
+            }))
+          }
+          onRemoveMisc={(miscId) =>
+            update((current) => ({
+              ...current,
+              dayMiscs: {
+                ...current.dayMiscs,
+                [dayKey]: (current.dayMiscs[dayKey] ?? []).filter((item) => item.id !== miscId),
+              },
+            }))
+          }
           onRegenerate={() =>
             commit((current) => ({
               ...current,
@@ -493,6 +559,8 @@ export default function App() {
         <TaskEditor
           draft={taskDraft}
           subjects={data.subjects}
+          origin={span.origin}
+          examDate={span.examDate}
           onClose={() => setTaskDraft(null)}
           onSave={saveTask}
           onDelete={(taskId) => {
@@ -555,7 +623,7 @@ export default function App() {
         <Modal title="后移会超出可用时间" onClose={() => setShiftWarning(null)} width={470}>
           <div className="stack" style={{ gap: 14 }}>
             <Callout tone="warning">
-              以下 {shiftWarning.length} 个任务后移后会超过 {LAST_DAY}，
+              以下 {shiftWarning.length} 个任务后移后会超过 {lastDay}，
               结束日期会被压到最后一天，实际复习天数减少。
             </Callout>
             <ul className="small muted" style={{ margin: 0, paddingLeft: 20 }}>
@@ -627,8 +695,6 @@ export default function App() {
       ) : null}
 
       <footer className="small muted-3" style={{ marginTop: 26, textAlign: "center" }}>
-        当前是「{ownerName}」在这台浏览器里的计划，同学在他们自己手机/电脑上改，不会动到你这份。
-        发给同学请用 {siteHomeUrl()} ，让他们用自己的名字新建。
         今天 {tasksOfDay(data, today).length} 个任务。
         <div className="row" style={{ justifyContent: "center", marginTop: 8 }}>
           <Button small onClick={workspace.leave}>

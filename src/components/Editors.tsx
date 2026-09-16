@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { EXAM_DATE, ORIGIN } from "../dateUtils";
 import type { Subject } from "../types";
 import { Button, ColorPicker, Field, Modal, NumberField, TextField } from "./ui";
 
@@ -16,12 +15,16 @@ export type TaskDraft = {
 export function TaskEditor({
   draft,
   subjects,
+  origin,
+  examDate,
   onClose,
   onSave,
   onDelete,
 }: {
   draft: TaskDraft;
   subjects: Subject[];
+  origin: string;
+  examDate: string;
   onClose: () => void;
   onSave: (draft: TaskDraft) => void;
   onDelete: (taskId: string) => void;
@@ -85,7 +88,7 @@ export function TaskEditor({
           </div>
         ) : (
           <div className="small muted-3">
-            周期范围 {ORIGIN} 至 {EXAM_DATE} 前一天
+            周期范围 {origin} 至 {examDate}
           </div>
         )}
 

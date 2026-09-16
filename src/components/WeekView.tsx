@@ -1,11 +1,13 @@
 import { useState } from "react";
 import {
-  TOTAL_WEEKS,
-  WEEK_DAY_LABELS,
   addDays,
+  calendarKey,
   formatMD,
+  spanWeeks,
+  type Span,
   weekRangeLabel,
   weekStartKey,
+  weekdayShort,
 } from "../dateUtils";
 import { coversDay, overlapsRange, plannedHoursOf, scheduledHoursOf } from "../schedule";
 import { colorOf, tint } from "../theme";
@@ -14,8 +16,14 @@ import { Button, Callout, NumberField } from "./ui";
 
 const GRID = "150px 66px minmax(0, 1fr)";
 
+function dayClass(dateKey: string, today: string, header = false) {
+  if (dateKey !== today) return undefined;
+  return header ? "week-today-head" : "week-today";
+}
+
 export function WeekView({
   data,
+  span,
   week,
   methodId,
   onWeekChange,
@@ -27,6 +35,7 @@ export function WeekView({
   onCellTextChange,
 }: {
   data: PlannerData;
+  span: Span;
   week: number;
   methodId: string | null;
   onWeekChange: (week: number) => void;
@@ -38,7 +47,10 @@ export function WeekView({
   onCellTextChange: (key: string, text: string) => void;
 }) {
   const [reportOpen, setReportOpen] = useState(false);
-  const days = Array.from({ length: 7 }, (_, index) => addDays(weekStartKey(week), index));
+  const today = calendarKey();
+  const totalWeeks = spanWeeks(span);
+  const days = Array.from({ length: 7 }, (_, index) => addDays(weekStartKey(week, span.origin), index));
+  const fade = (dateKey: string) => (dateKey < today ? 0.55 : 1);
   const weekFrom = days[0];
   const weekTo = days[6];
   const weekTasks = data.tasks.filter((task) => overlapsRange(task, weekFrom, weekTo));
@@ -53,9 +65,9 @@ export function WeekView({
           ← 上一周
         </Button>
         <strong style={{ fontSize: 17 }}>
-          第{week + 1}周 · {weekRangeLabel(week)}
+          第{week + 1}周 · {weekRangeLabel(week, span)}
         </strong>
-        <Button disabled={week === TOTAL_WEEKS - 1} onClick={() => onWeekChange(week + 1)}>
+        <Button disabled={week === totalWeeks - 1} onClick={() => onWeekChange(week + 1)}>
           下一周 →
         </Button>
       </div>
@@ -67,17 +79,26 @@ export function WeekView({
             日均用时
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}>
-            {days.map((dateKey, index) => (
+            {days.map((dateKey) => (
               <div
                 key={dateKey}
+                className={dayClass(dateKey, today, true)}
                 style={{
                   padding: "5px 4px",
                   textAlign: "center",
                   borderLeft: "1px solid var(--stroke)",
+                  opacity: fade(dateKey),
                 }}
               >
-                <div style={{ fontWeight: 600 }}>周{WEEK_DAY_LABELS[index]}</div>
-                <div className="small muted-3">{formatMD(dateKey)}</div>
+                <div style={{ fontWeight: 700, color: dateKey === today ? "var(--accent)" : undefined }}>
+                  {dateKey === today ? "今天" : `周${weekdayShort(dateKey)}`}
+                </div>
+                <div
+                  className={dateKey === today ? "small" : "small muted-3"}
+                  style={{ color: dateKey === today ? "var(--accent)" : undefined, fontWeight: dateKey === today ? 600 : undefined }}
+                >
+                  {formatMD(dateKey)}
+                </div>
               </div>
             ))}
           </div>
@@ -104,16 +125,21 @@ export function WeekView({
               return (
                 <div
                   key={dateKey}
-                  style={{ padding: "6px 5px", borderLeft: "1px solid var(--stroke)" }}
+                  className={dayClass(dateKey, today)}
+                  style={{
+                    padding: "6px 5px",
+                    borderLeft: "1px solid var(--stroke)",
+                    opacity: fade(dateKey),
+                  }}
                 >
                   <div className="row" style={{ gap: 3 }}>
+                    <span className="small muted">计划</span>
                     <NumberField
                       value={planned}
                       width={46}
                       onChange={(value) => onPlannedChange(dateKey, Number(value) || 0)}
                       title="当天计划可用时长"
                     />
-                    <span className="small muted">计划</span>
                   </div>
                   <div
                     className="small"
@@ -157,9 +183,12 @@ export function WeekView({
                 subject={subject}
                 tasks={subjectTasks}
                 days={days}
+                today={today}
                 onManage={() => onManageSubject(subject)}
               />
-              {subjectTasks.map((task) => (
+              {subjectTasks.map((task) => {
+                const methodOpen = methodId === task.id;
+                return (
                 <div
                   key={task.id}
                   style={{
@@ -168,8 +197,7 @@ export function WeekView({
                     borderTop: "1px solid var(--stroke)",
                   }}
                 >
-                  <div style={{ padding: "7px 8px", display: "flex", flexDirection: "column", gap: 6 }}>
-                    <div className="row" style={{ gap: 5 }}>
+                  <div style={{ padding: "7px 8px", display: "flex", gap: 5, alignItems: "center" }}>
                       <button
                         type="button"
                         title="双击编辑任务"
@@ -193,23 +221,11 @@ export function WeekView({
                       </button>
                       <button
                         type="button"
-                        className={methodId === task.id ? "btn btn-small btn-primary" : "btn btn-small"}
+                        className={methodOpen ? "btn btn-small btn-primary" : "btn btn-small"}
                         onClick={() => onMethodToggle(task.id)}
                       >
                         学法
                       </button>
-                    </div>
-                    {methodId === task.id ? (
-                      <textarea
-                        className="field"
-                        rows={3}
-                        value={task.method}
-                        placeholder="用一两句话记录学法…"
-                        onChange={(event) =>
-                          onTaskChange(task.id, { method: event.target.value }, false)
-                        }
-                      />
-                    ) : null}
                   </div>
                   <div style={{ padding: "7px 4px", textAlign: "center" }}>
                     <NumberField
@@ -220,17 +236,32 @@ export function WeekView({
                       }
                     />
                   </div>
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(0, 1fr))" }}>
+                  <div
+                    style={{
+                      gridColumn: 3,
+                      gridRow: methodOpen ? "1 / 3" : "1",
+                      display: "grid",
+                      gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
+                    }}
+                  >
                     {days.map((dateKey) => {
                       const active = coversDay(task, dateKey);
                       const cellKey = `${task.id}|${dateKey}`;
                       return (
                         <div
                           key={cellKey}
+                          className={dayClass(dateKey, today)}
                           style={{
                             padding: 5,
                             borderLeft: "1px solid var(--stroke)",
-                            background: active ? tint(task.colorId, 0.18) : "var(--surface-2)",
+                            background: active
+                              ? dateKey === today
+                                ? tint(task.colorId, 0.28)
+                                : tint(task.colorId, 0.18)
+                              : dateKey === today
+                                ? undefined
+                                : "var(--surface-2)",
+                            opacity: fade(dateKey),
                           }}
                         >
                           {active ? (
@@ -248,8 +279,22 @@ export function WeekView({
                       );
                     })}
                   </div>
+                  {methodOpen ? (
+                    <div style={{ gridColumn: "1 / 3", gridRow: 2, padding: "0 8px 8px" }}>
+                      <textarea
+                        className="field"
+                        rows={3}
+                        value={task.method}
+                        placeholder="用一两句话记录学法…"
+                        onChange={(event) =>
+                          onTaskChange(task.id, { method: event.target.value }, false)
+                        }
+                      />
+                    </div>
+                  ) : null}
                 </div>
-              ))}
+                );
+              })}
             </div>
           );
         })}
@@ -300,11 +345,13 @@ function WeekSubjectRow({
   subject,
   tasks,
   days,
+  today,
   onManage,
 }: {
   subject: Subject;
   tasks: Task[];
   days: string[];
+  today: string;
   onManage: () => void;
 }) {
   const perDay = days.map((dateKey) =>
@@ -348,13 +395,14 @@ function WeekSubjectRow({
         {perDay.map((value, index) => (
           <div
             key={index}
-            className="small"
+            className={`small ${dayClass(days[index], today) ?? ""}`.trim()}
             style={{
               padding: "9px 2px",
               textAlign: "center",
               borderLeft: "1px solid var(--stroke)",
               fontWeight: 600,
               color: value > 0 ? "var(--text)" : "var(--text-3)",
+              opacity: days[index] < today ? 0.55 : 1,
             }}
           >
             {value > 0 ? `${value.toFixed(1)}h` : "–"}
