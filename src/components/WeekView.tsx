@@ -10,7 +10,7 @@ import {
   weekRangeLabel,
   weekdayShort,
 } from "../dateUtils";
-import { coversDay, overlapsRange, plannedHoursOf, scheduledHoursOf, sortSubjectTasks } from "../schedule";
+import { coversDay, overlapsRange, plannedHoursOf, scheduledHoursOf, sortSubjectTasks, subjectsOnScreen } from "../schedule";
 import { colorOf, tint } from "../theme";
 import type { PlannerData, Subject, Task } from "../types";
 import { Button, Callout, NumberField, Pill } from "./ui";
@@ -37,6 +37,7 @@ export function WeekView({
   onCellTextChange,
   onDragStart,
   onReorder,
+  onWeekStartChange,
 }: {
   data: PlannerData;
   span: Span;
@@ -51,9 +52,10 @@ export function WeekView({
   onCellTextChange: (key: string, text: string) => void;
   onDragStart: () => void;
   onReorder: (dragId: string, hoverId: string) => void;
+  onWeekStartChange: (start: WeekStart) => void;
 }) {
   const [reportOpen, setReportOpen] = useState(false);
-  const [weekStart, setWeekStart] = useState<WeekStart>("sat");
+  const weekStart: WeekStart = data.weekStart === "mon" ? "mon" : "sat";
   const [dragId, setDragId] = useState<string | null>(null);
   useEffect(() => {
     if (!dragId) return;
@@ -79,9 +81,7 @@ export function WeekView({
   const weekFrom = days[0];
   const weekTo = days[6];
   const weekTasks = data.tasks.filter((task) => overlapsRange(task, weekFrom, weekTo));
-  const visibleSubjects = data.subjects.filter((subject) =>
-    weekTasks.some((task) => task.subjectId === subject.id),
-  );
+  const visibleSubjects = subjectsOnScreen(data.subjects, data.tasks, weekTasks);
 
   return (
     <div className="stack" style={{ gap: 12 }}>
@@ -97,10 +97,10 @@ export function WeekView({
         </Button>
       </div>
       <div className="row" style={{ justifyContent: "center", gap: 8 }}>
-        <Pill active={weekStart === "sat"} onClick={() => setWeekStart("sat")}>
+        <Pill active={weekStart === "sat"} onClick={() => onWeekStartChange("sat")}>
           周六至周五
         </Pill>
-        <Pill active={weekStart === "mon"} onClick={() => setWeekStart("mon")}>
+        <Pill active={weekStart === "mon"} onClick={() => onWeekStartChange("mon")}>
           周一至周日
         </Pill>
       </div>
@@ -331,6 +331,7 @@ export function WeekView({
                               rows={2}
                               value={data.weekTexts[cellKey] ?? ""}
                               placeholder={task.name}
+                              onFocus={onDragStart}
                               onChange={(event) => onCellTextChange(cellKey, event.target.value)}
                             />
                           ) : (
@@ -356,6 +357,11 @@ export function WeekView({
                 </div>
                 );
               })}
+              {subjectTasks.length === 0 ? (
+                <div className="small muted" style={{ padding: "8px 10px", borderTop: "1px solid var(--stroke)" }}>
+                  还没有二级任务，点左侧科目名称添加
+                </div>
+              ) : null}
             </div>
           );
         })}

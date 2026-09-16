@@ -9,6 +9,7 @@ import {
   type TimelineScale,
   timelineColumns,
   todayLinePercent,
+  todayLinePercentWeeks,
   weekEndKey,
   weekStartKey,
 } from "../dateUtils";
@@ -89,12 +90,17 @@ export function TodayLine({
   span,
   weekFrom,
   weekTo,
+  layout = "days",
 }: {
   span: Span;
   weekFrom: number;
   weekTo: number;
+  layout?: "days" | "weeks";
 }) {
-  const percent = todayLinePercent(span, weekFrom, weekTo);
+  const percent =
+    layout === "weeks"
+      ? todayLinePercentWeeks(span, weekFrom, weekTo)
+      : todayLinePercent(span, weekFrom, weekTo);
   if (percent == null) return null;
   return (
     <div

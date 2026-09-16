@@ -42,11 +42,14 @@ import {
 } from "./schedule";
 import { usePlanner } from "./storage";
 import type { DayEntry, PlannerData, Subject, Task, ViewKey } from "./types";
-import { useWorkspace } from "./workspace";
+import { profileNeedsPass, useWorkspace } from "./workspace";
 
 export default function App() {
   const workspace = useWorkspace();
-  const { data, commit, update, undo, canUndo } = usePlanner(workspace.profile?.id ?? null);
+  const { data, commit, update, undo, canUndo, saveError } = usePlanner(
+    workspace.profile?.id ?? null,
+    Boolean(workspace.profile?.cloud),
+  );
   const [, setNow] = useState(() => Date.now());
   const [exportText, setExportText] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
@@ -73,6 +76,9 @@ export default function App() {
   const [shiftWarning, setShiftWarning] = useState<Task[] | null>(null);
   const [carryoverDate, setCarryoverDate] = useState<string | null>(null);
   const [carryoverDismissed, setCarryoverDismissed] = useState(false);
+  const [passA, setPassA] = useState("");
+  const [passB, setPassB] = useState("");
+  const [passMsg, setPassMsg] = useState("");
 
   const today = todayKey(span);
   const eventName = data.eventName?.trim() || "考研";
@@ -337,12 +343,22 @@ export default function App() {
     setCarryoverDismissed(true);
   };
 
+  if (!workspace.ready) {
+    return (
+      <div className="muted" style={{ maxWidth: 520, margin: "20vh auto", textAlign: "center" }}>
+        打开中…
+      </div>
+    );
+  }
+
   if (!workspace.profile) {
     return (
       <WorkspaceGate
         profiles={workspace.profiles}
+        cloudAvailable={workspace.cloudAvailable}
+        cloudMessage={workspace.cloudMessage}
         onCreate={workspace.create}
-        onOpen={workspace.open}
+        onUnlock={workspace.unlock}
       />
     );
   }
@@ -419,6 +435,10 @@ export default function App() {
           {formatCN(today)}
         </Pill>
       </div>
+
+      {saveError ? (
+        <Callout tone="warning">这台设备存不下这份计划了。先点右上角导出备份，清一点浏览器数据后再改。</Callout>
+      ) : null}
 
       {view === "overview" ? (
         <OverviewView
@@ -502,6 +522,7 @@ export default function App() {
               };
             })
           }
+          onWeekStartChange={(start) => update((current) => ({ ...current, weekStart: start }))}
         />
       ) : null}
 
@@ -739,10 +760,41 @@ export default function App() {
       ) : null}
 
       <footer className="small muted-3" style={{ marginTop: 26, textAlign: "center" }}>
-        今天 {tasksOfDay(data, today).length} 个任务。
+        今天 {tasksOfDay(data, today).length} 个任务 · 当前用户 {ownerName}
+        {workspace.profile.cloud ? " · 已同步到云端" : ""}
+        {workspace.profile && !profileNeedsPass(workspace.profile) ? (
+          <div className="stack" style={{ gap: 8, maxWidth: 320, margin: "12px auto 0" }}>
+            <div>这个用户名还没有口令，补上以后换浏览器会话要输入才能进。</div>
+            <TextField type="password" value={passA} placeholder="新口令，至少 4 个字符" onChange={setPassA} />
+            <TextField type="password" value={passB} placeholder="再输一次" onChange={setPassB} />
+            <Button
+              small
+              onClick={() => {
+                setPassMsg("");
+                if (passA !== passB) {
+                  setPassMsg("两次口令不一致");
+                  return;
+                }
+                workspace
+                  .setPassphrase(workspace.profile!.id, passA)
+                  .then(() => {
+                    setPassA("");
+                    setPassB("");
+                    setPassMsg("口令已保存");
+                  })
+                  .catch((caught: unknown) => {
+                    setPassMsg(caught instanceof Error ? caught.message : "没保存成");
+                  });
+              }}
+            >
+              设置口令
+            </Button>
+            {passMsg ? <div>{passMsg}</div> : null}
+          </div>
+        ) : null}
         <div className="row" style={{ justifyContent: "center", marginTop: 8 }}>
           <Button small onClick={workspace.leave}>
-            换人 / 新建计划
+            退出 / 换人
           </Button>
         </div>
       </footer>

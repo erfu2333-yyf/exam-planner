@@ -84,12 +84,14 @@ export function TextField({
   placeholder,
   type = "text",
   width,
+  autoComplete,
 }: {
   value: string;
   onChange: (value: string) => void;
   placeholder?: string;
   type?: string;
   width?: number | string;
+  autoComplete?: string;
 }) {
   return (
     <input
@@ -97,6 +99,7 @@ export function TextField({
       type={type}
       value={value}
       placeholder={placeholder}
+      autoComplete={autoComplete ?? (type === "password" ? "current-password" : undefined)}
       onChange={(event) => onChange(event.target.value)}
       style={{ width: width ?? "100%" }}
     />

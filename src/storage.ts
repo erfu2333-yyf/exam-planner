@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getCloudPlan, putCloudPlan } from "./cloud";
 import { INITIAL_DATA } from "./data";
 import { DEFAULT_EXAM_DATE } from "./dateUtils";
 import { assignTaskOrder } from "./schedule";
@@ -11,13 +12,13 @@ import { dataKey } from "./workspace";
  */
 export type Repository = {
   load: () => PlannerData;
-  save: (data: PlannerData) => void;
+  save: (data: PlannerData) => boolean;
 };
 
-function parsePlanner(raw: string | null): PlannerData {
-  if (!raw) return INITIAL_DATA;
+export function parsePlanner(raw: string | null | unknown): PlannerData {
+  if (raw == null || raw === "") return INITIAL_DATA;
   try {
-    const parsed = JSON.parse(raw) as Partial<PlannerData>;
+    const parsed = (typeof raw === "string" ? JSON.parse(raw) : raw) as Partial<PlannerData>;
     return {
       subjects: parsed.subjects ?? INITIAL_DATA.subjects,
       tasks: assignTaskOrder(parsed.tasks ?? INITIAL_DATA.tasks),
@@ -29,6 +30,7 @@ function parsePlanner(raw: string | null): PlannerData {
       eventName: parsed.eventName?.trim() || "考研",
       examDate: parsed.examDate ?? DEFAULT_EXAM_DATE,
       capacity: parsed.capacity ?? INITIAL_DATA.capacity,
+      weekStart: parsed.weekStart === "mon" ? "mon" : "sat",
     };
   } catch {
     return INITIAL_DATA;
@@ -59,8 +61,9 @@ export function createRepository(spaceId: string): Repository {
     save(data) {
       try {
         localStorage.setItem(key, JSON.stringify(data));
+        return true;
       } catch {
-        // 配额写满时静默失败，不阻断交互
+        return false;
       }
     },
   };
@@ -68,7 +71,7 @@ export function createRepository(spaceId: string): Repository {
 
 const HISTORY_LIMIT = 30;
 
-export function usePlanner(spaceId: string | null) {
+export function usePlanner(spaceId: string | null, cloud = false) {
   const repository = useMemo(
     () => (spaceId ? createRepository(spaceId) : null),
     [spaceId],
@@ -77,19 +80,57 @@ export function usePlanner(spaceId: string | null) {
     repository ? repository.load() : INITIAL_DATA,
   );
   const [history, setHistory] = useState<PlannerData[]>([]);
+  const [saveError, setSaveError] = useState(false);
+  const [hydrated, setHydrated] = useState(!cloud);
   const saveTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     setData(repository ? repository.load() : INITIAL_DATA);
     setHistory([]);
-  }, [repository]);
+    setSaveError(false);
+    setHydrated(!cloud);
+  }, [repository, cloud]);
 
   useEffect(() => {
-    if (!repository) return;
+    if (!cloud || !repository) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const remote = await getCloudPlan();
+        if (cancelled) return;
+        if (remote) {
+          const parsed = parsePlanner(remote);
+          setData(parsed);
+          repository.save(parsed);
+        } else {
+          await putCloudPlan(repository.load());
+        }
+      } catch {
+        if (!cancelled) setSaveError(true);
+      } finally {
+        if (!cancelled) setHydrated(true);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [cloud, repository]);
+
+  useEffect(() => {
+    if (!repository || !hydrated) return;
     window.clearTimeout(saveTimer.current);
-    saveTimer.current = window.setTimeout(() => repository.save(data), 250);
+    saveTimer.current = window.setTimeout(() => {
+      const localOk = repository.save(data);
+      if (!cloud) {
+        setSaveError(!localOk);
+        return;
+      }
+      void putCloudPlan(data).then((remoteOk) => {
+        setSaveError(!localOk || !remoteOk);
+      });
+    }, 250);
     return () => window.clearTimeout(saveTimer.current);
-  }, [data, repository]);
+  }, [data, repository, cloud, hydrated]);
 
   const commit = useCallback((next: (current: PlannerData) => PlannerData) => {
     setData((current) => {
@@ -110,5 +151,5 @@ export function usePlanner(spaceId: string | null) {
     });
   }, []);
 
-  return { data, commit, update, undo, canUndo: history.length > 0 };
+  return { data, commit, update, undo, canUndo: history.length > 0, saveError };
 }

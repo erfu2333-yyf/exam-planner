@@ -23,6 +23,18 @@ export function overlapsRange(task: Task, fromKey: string, toKey: string): boole
   return task.startDate <= toKey && task.endDate >= fromKey;
 }
 
+export function subjectsOnScreen(
+  subjects: Subject[],
+  allTasks: Task[],
+  visibleTasks: Task[],
+): Subject[] {
+  return subjects.filter((subject) => {
+    const mine = allTasks.filter((task) => task.subjectId === subject.id);
+    if (mine.length === 0) return true;
+    return visibleTasks.some((task) => task.subjectId === subject.id);
+  });
+}
+
 export function subjectOf(data: PlannerData, subjectId: string): Subject | undefined {
   return data.subjects.find((subject) => subject.id === subjectId);
 }
@@ -108,14 +120,8 @@ export function dayPlanOf(data: PlannerData, dateKey: string): DayPlan {
       const text = data.weekTexts[weekCellKey(taskId, dateKey)] ?? "";
       merged[taskId] = {
         ...entry,
-        note: entry.note || text,
+        note: entry.note !== "" ? entry.note : text,
       };
-    }
-  }
-  for (const [taskId, entry] of Object.entries(merged)) {
-    if (!entry.note) {
-      const text = data.weekTexts[weekCellKey(taskId, dateKey)] ?? "";
-      if (text) merged[taskId] = { ...entry, note: text };
     }
   }
   return merged;

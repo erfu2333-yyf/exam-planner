@@ -65,4 +65,6 @@ export type PlannerData = {
   examDate: string;
   /** 每天可用总时长，超过就算超负荷 */
   capacity: number;
+  /** 当前周表头：周六至周五，或周一至周日 */
+  weekStart?: "sat" | "mon";
 };

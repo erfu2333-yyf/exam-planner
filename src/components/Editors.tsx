@@ -193,18 +193,26 @@ export function SubjectEditor({
                 </Button>
               </div>
             </div>
+            {value.name.trim() === "" ? (
+              <div className="small muted">先填名称才能保存</div>
+            ) : null}
           </>
         ) : (
-          <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
-            <Button onClick={onClose}>取消</Button>
-            <Button
-              variant="primary"
-              disabled={value.name.trim() === ""}
-              onClick={() => onSave(value)}
-            >
-              确认添加
-            </Button>
-          </div>
+          <>
+            <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
+              <Button onClick={onClose}>取消</Button>
+              <Button
+                variant="primary"
+                disabled={value.name.trim() === ""}
+                onClick={() => onSave(value)}
+              >
+                确认添加
+              </Button>
+            </div>
+            {value.name.trim() === "" ? (
+              <div className="small muted">先填名称才能保存</div>
+            ) : null}
+          </>
         )}
       </div>
     </Modal>

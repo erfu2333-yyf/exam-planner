@@ -187,4 +187,5 @@ export const INITIAL_DATA: PlannerData = {
   eventName: "考研",
   examDate: DEFAULT_EXAM_DATE,
   capacity: 12,
+  weekStart: "sat",
 };

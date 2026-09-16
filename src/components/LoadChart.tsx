@@ -121,7 +121,7 @@ export function LoadChart({
           );
         })}
       </div>
-      <TodayLine span={span} weekFrom={from} weekTo={to} />
+      <TodayLine span={span} weekFrom={from} weekTo={to} layout="weeks" />
     </div>
   );
 }

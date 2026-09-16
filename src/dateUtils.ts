@@ -221,6 +221,32 @@ export function timelineColumns(
   return columns;
 }
 
+export function monthBands(
+  columns: TimelineColumn[],
+): Array<{ key: string; label: string; start: number; count: number }> {
+  const bands: Array<{ key: string; label: string; start: number; count: number; year: number }> = [];
+  for (let index = 0; index < columns.length; index++) {
+    const date = parseKey(columns[index].start);
+    const year = date.getFullYear();
+    const month = date.getMonth() + 1;
+    const key = `${year}-${month}`;
+    const last = bands[bands.length - 1];
+    if (last && last.key === key) {
+      last.count += 1;
+      continue;
+    }
+    const yearChanged = last != null && last.year !== year;
+    bands.push({
+      key,
+      year,
+      start: index,
+      count: 1,
+      label: yearChanged ? `${year}年${month}月` : `${month}月`,
+    });
+  }
+  return bands.map(({ key, label, start, count }) => ({ key, label, start, count }));
+}
+
 export function columnTrack(columns: TimelineColumn[], minPx = 0): string {
   return columns
     .map((column) => {
@@ -247,4 +273,16 @@ export function todayLinePercent(span: Span, weekFrom: number, weekTo: number): 
   if (today < rangeStart || today > rangeLast) return null;
   const rangeDays = Math.max(1, dayIndex(rangeLast, rangeStart) + 1);
   return (dayIndex(today, rangeStart) / rangeDays) * 100;
+}
+
+/** 负荷图一周一列等宽时，把今天竖线落到对应周里的日期位置 */
+export function todayLinePercentWeeks(span: Span, weekFrom: number, weekTo: number): number | null {
+  const today = calendarKey();
+  const rangeStart = weekStartKey(weekFrom, span.origin);
+  const rangeLast = weekEndKey(weekTo, span);
+  if (today < rangeStart || today > rangeLast) return null;
+  const weeks = weekTo - weekFrom + 1;
+  const todayWeek = weekOfIndex(dayIndex(today, span.origin));
+  const offset = dayIndex(today, weekStartKey(todayWeek, span.origin));
+  return ((todayWeek - weekFrom) + offset / 7) / weeks * 100;
 }

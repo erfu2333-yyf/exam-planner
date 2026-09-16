@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   columnTrack,
   formatMD,
+  monthBands,
   spanWeeks,
   type Span,
   type TimelineColumn,
@@ -10,7 +11,7 @@ import {
   weekEndKey,
   weekStartKey,
 } from "../dateUtils";
-import { overlapsRange, sortSubjectTasks } from "../schedule";
+import { overlapsRange, sortSubjectTasks, subjectsOnScreen } from "../schedule";
 import { colorOf } from "../theme";
 import type { PlannerData, Subject, Task } from "../types";
 import { GanttBar, PhaseLines, TodayCaption, TodayLine } from "./GanttBar";
@@ -92,10 +93,10 @@ export function OverviewView({
   const rangeTo = weekEndKey(weekTo, span);
   const columns = timelineColumns(span, weekFrom, weekTo, scale);
   const track = columnTrack(columns, scale === "day" ? 22 : 0);
+  const timelineMinWidth = scale === "day" ? Math.max(720, columns.length * 22) : undefined;
+  const rowMinWidth = timelineMinWidth != null ? 210 + 74 + timelineMinWidth : undefined;
   const visibleTasks = data.tasks.filter((task) => overlapsRange(task, rangeFrom, rangeTo));
-  const visibleSubjects = data.subjects.filter((subject) =>
-    visibleTasks.some((task) => task.subjectId === subject.id),
-  );
+  const visibleSubjects = subjectsOnScreen(data.subjects, data.tasks, visibleTasks);
 
   return (
     <div className="stack" style={{ gap: 16 }}>
@@ -156,7 +157,7 @@ export function OverviewView({
             gridTemplateColumns: GRID,
             background: "var(--surface-3)",
             borderBottom: "1px solid var(--stroke)",
-            minWidth: scale === "day" ? 720 : undefined,
+            minWidth: rowMinWidth,
           }}
         >
           <div />
@@ -168,14 +169,21 @@ export function OverviewView({
             display: "grid",
             gridTemplateColumns: GRID,
             background: "var(--surface-3)",
-            minWidth: scale === "day" ? 720 : undefined,
+            minWidth: rowMinWidth,
           }}
         >
           <div style={{ padding: "9px 10px", fontWeight: 600 }}>二级任务</div>
           <div style={{ padding: "9px 4px", fontWeight: 600, textAlign: "center" }} className="small">
             日均用时
           </div>
-          <TimelineHeader columns={columns} track={track} span={span} weekFrom={weekFrom} weekTo={weekTo} />
+          <TimelineHeader
+            columns={columns}
+            track={track}
+            span={span}
+            weekFrom={weekFrom}
+            weekTo={weekTo}
+            scale={scale}
+          />
         </div>
 
         {visibleSubjects.map((subject) => {
@@ -192,7 +200,7 @@ export function OverviewView({
                 span={span}
                 weekFrom={weekFrom}
                 weekTo={weekTo}
-                minWidth={scale === "day" ? 720 : undefined}
+                minWidth={rowMinWidth}
                 onManage={() => onManageSubject(subject)}
               />
               {subjectTasks.map((task) => {
@@ -209,7 +217,7 @@ export function OverviewView({
                         task.id === selectedId || dragId === task.id
                           ? "var(--surface-2)"
                           : "var(--surface)",
-                      minWidth: scale === "day" ? 720 : undefined,
+                      minWidth: rowMinWidth,
                     }}
                   >
                     <div
@@ -315,6 +323,14 @@ export function OverviewView({
                   </div>
                 );
               })}
+              {subjectTasks.length === 0 ? (
+                <div
+                  className="small muted"
+                  style={{ padding: "8px 12px", borderTop: "1px solid var(--stroke)", minWidth: rowMinWidth }}
+                >
+                  还没有二级任务，点左侧科目名称添加
+                </div>
+              ) : null}
             </div>
           );
         })}
@@ -341,39 +357,67 @@ function TimelineHeader({
   span,
   weekFrom,
   weekTo,
+  scale,
 }: {
   columns: TimelineColumn[];
   track: string;
   span: Span;
   weekFrom: number;
   weekTo: number;
+  scale: TimelineScale;
 }) {
   const compact = columns.length > 20;
+  const bands = scale === "day" ? monthBands(columns) : [];
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: track,
-        position: "relative",
-      }}
-    >
-      {columns.map((column) => (
-        <div
-          key={column.key}
-          style={{
-            padding: compact ? "5px 0" : "5px 2px",
-            textAlign: "center",
-            borderLeft: "1px solid var(--stroke)",
-          }}
-        >
-          <div className="small" style={{ fontWeight: 600 }}>
-            {column.label}
-          </div>
-          {compact ? null : <div className="small muted-3">{column.sublabel}</div>}
+    <div style={{ position: "relative" }}>
+      {bands.length > 0 ? (
+        <div style={{ display: "grid", gridTemplateColumns: track }}>
+          {bands.map((band) => (
+            <div
+              key={band.key}
+              className="small"
+              style={{
+                gridColumn: `${band.start + 1} / span ${band.count}`,
+                padding: "4px 0 2px",
+                textAlign: "center",
+                fontWeight: 700,
+                borderLeft: "1px solid var(--stroke-strong)",
+                borderBottom: "1px solid var(--stroke)",
+              }}
+            >
+              {band.label}
+            </div>
+          ))}
         </div>
-      ))}
-      <PhaseLines span={span} weekFrom={weekFrom} weekTo={weekTo} />
-      <TodayLine span={span} weekFrom={weekFrom} weekTo={weekTo} />
+      ) : null}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: track,
+          position: "relative",
+        }}
+      >
+        {columns.map((column) => {
+          const monthStart = scale === "day" && column.start.endsWith("-01");
+          return (
+            <div
+              key={column.key}
+              style={{
+                padding: compact ? "4px 0" : "5px 2px",
+                textAlign: "center",
+                borderLeft: monthStart ? "1px solid var(--stroke-strong)" : "1px solid var(--stroke)",
+              }}
+            >
+              <div className="small" style={{ fontWeight: 600 }}>
+                {column.label}
+              </div>
+              {compact ? null : <div className="small muted-3">{column.sublabel}</div>}
+            </div>
+          );
+        })}
+        <PhaseLines span={span} weekFrom={weekFrom} weekTo={weekTo} />
+        <TodayLine span={span} weekFrom={weekFrom} weekTo={weekTo} />
+      </div>
     </div>
   );
 }
