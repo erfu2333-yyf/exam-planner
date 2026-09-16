@@ -242,12 +242,8 @@ textarea.field {
   overflow: hidden;
 }
 
-.planner-table {
+.card.planner-table {
   overflow: visible;
-}
-
-.planner-table-day {
-  overflow-x: auto;
 }
 
 .planner-table-week {
@@ -261,6 +257,25 @@ textarea.field {
   z-index: 12;
   background: var(--surface-3);
   box-shadow: 0 1px 0 var(--stroke);
+}
+
+.planner-head-clip {
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.planner-head-clip-barless,
+.planner-table-body {
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.planner-head-clip-barless::-webkit-scrollbar,
+.planner-table-body::-webkit-scrollbar {
+  height: 0;
+  display: none;
 }
 
 .planner-stick-name,

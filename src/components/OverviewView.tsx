@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   columnTrack,
   formatMD,
@@ -67,6 +67,14 @@ export function OverviewView({
 }) {
   const [scale, setScale] = useState<TimelineScale>("week");
   const [dragId, setDragId] = useState<string | null>(null);
+  const captionClipRef = useRef<HTMLDivElement | null>(null);
+  const headClipRef = useRef<HTMLDivElement | null>(null);
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const syncHScroll = (left: number, source: HTMLDivElement) => {
+    for (const node of [captionClipRef.current, headClipRef.current, bodyRef.current]) {
+      if (node && node !== source && node.scrollLeft !== left) node.scrollLeft = left;
+    }
+  };
   useEffect(() => {
     if (!dragId) return;
     const onMove = (event: PointerEvent) => {
@@ -97,6 +105,11 @@ export function OverviewView({
   const rowMinWidth = timelineMinWidth != null ? 210 + 74 + timelineMinWidth : undefined;
   const visibleTasks = data.tasks.filter((task) => overlapsRange(task, rangeFrom, rangeTo));
   const visibleSubjects = subjectsOnScreen(data.subjects, data.tasks, visibleTasks);
+  useEffect(() => {
+    for (const node of [captionClipRef.current, headClipRef.current, bodyRef.current]) {
+      if (node) node.scrollLeft = 0;
+    }
+  }, [scale, weekFrom, weekTo]);
 
   return (
     <div className="stack" style={{ gap: 16 }}>
@@ -150,7 +163,7 @@ export function OverviewView({
         </span>
       </div>
 
-      <div className={`card planner-table${scale === "day" ? " planner-table-day" : ""}`}>
+      <div className="card planner-table">
         <div className="planner-table-head">
         <div
           style={{
@@ -158,35 +171,55 @@ export function OverviewView({
             gridTemplateColumns: GRID,
             background: "var(--surface-3)",
             borderBottom: "1px solid var(--stroke)",
-            minWidth: rowMinWidth,
           }}
         >
           <div className="planner-stick-name" />
           <div className="planner-stick-hours" />
-          <TodayCaption span={span} weekFrom={weekFrom} weekTo={weekTo} />
+          <div
+            ref={captionClipRef}
+            className="planner-head-clip planner-head-clip-barless"
+            onScroll={(event) => syncHScroll(event.currentTarget.scrollLeft, event.currentTarget)}
+          >
+            <div style={{ minWidth: timelineMinWidth }}>
+              <TodayCaption span={span} weekFrom={weekFrom} weekTo={weekTo} />
+            </div>
+          </div>
         </div>
         <div
           style={{
             display: "grid",
             gridTemplateColumns: GRID,
             background: "var(--surface-3)",
-            minWidth: rowMinWidth,
           }}
         >
           <div className="planner-stick-name" style={{ padding: "9px 10px", fontWeight: 600 }}>任务清单</div>
           <div className="planner-stick-hours small" style={{ padding: "9px 4px", fontWeight: 600, textAlign: "center" }}>
             日均用时
           </div>
-          <TimelineHeader
-            columns={columns}
-            track={track}
-            span={span}
-            weekFrom={weekFrom}
-            weekTo={weekTo}
-            scale={scale}
-          />
+          <div
+            ref={headClipRef}
+            className="planner-head-clip"
+            onScroll={(event) => syncHScroll(event.currentTarget.scrollLeft, event.currentTarget)}
+          >
+            <div style={{ minWidth: timelineMinWidth }}>
+              <TimelineHeader
+                columns={columns}
+                track={track}
+                span={span}
+                weekFrom={weekFrom}
+                weekTo={weekTo}
+                scale={scale}
+              />
+            </div>
+          </div>
         </div>
         </div>
+
+        <div
+          ref={bodyRef}
+          className={scale === "day" ? "planner-table-body" : undefined}
+          onScroll={(event) => syncHScroll(event.currentTarget.scrollLeft, event.currentTarget)}
+        >
 
         {visibleSubjects.map((subject) => {
           const subjectTasks = sortSubjectTasks(
@@ -345,6 +378,7 @@ export function OverviewView({
             这个周次范围内没有任务
           </div>
         ) : null}
+        </div>
       </div>
 
       <div className="muted small">
