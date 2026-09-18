@@ -126,7 +126,7 @@ export function applySuggestion(data: PlannerData, action: SuggestionAction): Pl
     return {
       ...data,
       tasks: data.tasks.map((item) => (item.id === task.id ? updated : item)),
-      dayPlans: applyDailyHoursToDayPlans(data.dayPlans, updated),
+      dayPlans: applyDailyHoursToDayPlans(data.dayPlans, updated, data.dayHours),
     };
   }
   if (action.type === "setMethod") {

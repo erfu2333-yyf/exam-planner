@@ -156,7 +156,7 @@ export default function App() {
         ...pruned,
         dayPlans:
           patch.dailyHours != null
-            ? applyDailyHoursToDayPlans(pruned.dayPlans, updated)
+            ? applyDailyHoursToDayPlans(pruned.dayPlans, updated, pruned.dayHours)
             : pruned.dayPlans,
       };
     };
@@ -244,7 +244,7 @@ export default function App() {
           ...current,
           tasks,
           ...pruned,
-          dayPlans: applyDailyHoursToDayPlans(pruned.dayPlans, updated),
+          dayPlans: applyDailyHoursToDayPlans(pruned.dayPlans, updated, pruned.dayHours),
         };
       }
       return {

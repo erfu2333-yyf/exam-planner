@@ -11,7 +11,7 @@ import {
   weekEndKey,
   weekStartKey,
 } from "../dateUtils";
-import { hoursInRange, overlapsRange, sortSubjectTasks, subjectsOnScreen } from "../schedule";
+import { averageHoursInRange, overlapsRange, sortSubjectTasks, subjectsOnScreen } from "../schedule";
 import { colorOf } from "../theme";
 import type { PlannerData, Subject, Task } from "../types";
 import { GanttBar, PhaseLines, TodayCaption, TodayLine } from "./GanttBar";
@@ -505,7 +505,7 @@ function SubjectRow({
   onDragPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
 }) {
   const values = columns.map((column) =>
-    tasks.reduce((sum, task) => sum + hoursInRange(task, column.start, column.end), 0),
+    tasks.reduce((sum, task) => sum + averageHoursInRange(task, column.start, column.end), 0),
   );
 
   return (

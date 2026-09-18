@@ -158,10 +158,17 @@ export function phaseWeeks(totalWeeks: number): number[] {
   return marks.sort((left, right) => left - right);
 }
 
-/** 当前周表头的 7 天：规划周，周六起至周五 */
+/** 当前周表头：规划周周六起至周五，期末周裁到考试日前一天 */
 export function plannerWeekDays(week: number, span: Span): string[] {
   const saturday = weekStartKey(week, span.origin);
-  return Array.from({ length: 7 }, (_, index) => addDays(saturday, index));
+  const last = weekEndKey(week, span);
+  const days: string[] = [];
+  for (let index = 0; index < 7; index++) {
+    const key = addDays(saturday, index);
+    if (key > last) break;
+    days.push(key);
+  }
+  return days;
 }
 
 /** 当前周一次看 1 周或连续 2 周（不够两周就只到最后一周） */

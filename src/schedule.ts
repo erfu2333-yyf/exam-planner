@@ -55,6 +55,12 @@ export function hoursInRange(task: Task, fromKey: string, toKey: string): number
   return total;
 }
 
+/** 按格子覆盖的日历天数折成日均，只周一做就不会按 7 天满勤显示 */
+export function averageHoursInRange(task: Task, fromKey: string, toKey: string): number {
+  const days = Math.max(1, diffDays(fromKey, toKey) + 1);
+  return hoursInRange(task, fromKey, toKey) / days;
+}
+
 /** 当前周日均：本周该任务总用时 / 有任务的天数 */
 export function weekTaskAverage(data: PlannerData, task: Task, days: string[]): number {
   const covered = weekCoveredDays(task, days);
@@ -242,13 +248,13 @@ export function scheduledHoursOf(data: PlannerData, dateKey: string): number {
 
 /**
  * 总览改了日均用时后，把已经存下来的当天色块时长跟着改。
- * 起点不动，只拉长或缩短，避免把用户拖过的位置整段打乱。
+ * 起点不动，只拉长或缩短；当前周微调过的天不回写。
  */
 export function applyDailyHoursToDayPlans(
   dayPlans: Record<string, DayPlan>,
   task: Task,
+  dayHours?: Record<string, number>,
 ): Record<string, DayPlan> {
-  const duration = Math.max(0, snapHour(task.dailyHours));
   let changed = false;
   const next: Record<string, DayPlan> = {};
   for (const [dateKey, plan] of Object.entries(dayPlans)) {
@@ -263,6 +269,10 @@ export function applyDailyHoursToDayPlans(
       next[dateKey] = plan;
       continue;
     }
+    const override = dayHours?.[weekCellKey(task.id, dateKey)];
+    const hours =
+      typeof override === "number" && !Number.isNaN(override) ? override : task.dailyHours;
+    const duration = Math.max(0, snapHour(hours));
     if (duration <= 0) {
       const { [task.id]: _removed, ...rest } = plan;
       next[dateKey] = rest;
@@ -303,26 +313,18 @@ export function plannedHoursOf(data: PlannerData, dateKey: string): number {
   return data.plannedHours[dateKey] ?? data.capacity;
 }
 
-/** 某周每天的日均负荷：只把真正有课的天计入，不把空着的周几拿来摊薄 */
+/** 某周日均负荷：一周里实际发生的总时长 ÷ 这周日历天数，和总览格子、每日可用同一口径 */
 export function weekLoad(data: PlannerData, week: number, span: Span): Map<string, number> {
   const result = new Map<string, number>();
   const from = weekStartKey(week, span.origin);
   const to = weekEndKey(week, span);
   const days = Math.max(1, diffDays(from, to) + 1);
   for (const subject of data.subjects) {
-    let total = 0;
-    let active = 0;
-    for (let index = 0; index < days; index++) {
-      const dateKey = addDays(from, index);
-      const hours = data.tasks
-        .filter((task) => task.subjectId === subject.id && coversDay(task, dateKey))
-        .reduce((sum, task) => sum + task.dailyHours, 0);
-      if (hours > 0) {
-        total += hours;
-        active += 1;
-      }
-    }
-    if (active > 0) result.set(subject.id, total / active);
+    const total = data.tasks
+      .filter((task) => task.subjectId === subject.id)
+      .reduce((sum, task) => sum + hoursInRange(task, from, to), 0);
+    const average = total / days;
+    if (average > 0) result.set(subject.id, average);
   }
   return result;
 }

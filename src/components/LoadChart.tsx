@@ -85,7 +85,7 @@ export function LoadChart({
                   height: `${(total / max) * BAR_AREA}px`,
                   minHeight: 6,
                   display: "flex",
-                  flexDirection: "column-reverse",
+                  flexDirection: "column",
                   borderRadius: "5px 5px 0 0",
                   overflow: "hidden",
                 }}
