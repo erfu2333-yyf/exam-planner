@@ -22,6 +22,11 @@ export type Task = {
   colorId: string;
   /** 同一科目下二级任务的显示顺序，越小越靠上 */
   order?: number;
+  /**
+   * 每周哪几天做。用 Date.getDay()：0 周日 … 6 周六。
+   * 缺省或空表示日期范围内每天都做。
+   */
+  weekdays?: number[];
 };
 
 export type TaskStatus = "pending" | "done" | "unfinished";

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCloudPlan, putCloudPlan } from "./cloud";
 import { INITIAL_DATA } from "./data";
 import { DEFAULT_EXAM_DATE } from "./dateUtils";
-import { assignTaskOrder } from "./schedule";
+import { assignTaskOrder, normalizeWeekdays } from "./schedule";
 import type { DayMisc, PlannerData } from "./types";
 import { dataKey } from "./workspace";
 
@@ -21,7 +21,12 @@ export function parsePlanner(raw: string | null | unknown): PlannerData {
     const parsed = (typeof raw === "string" ? JSON.parse(raw) : raw) as Partial<PlannerData>;
     return {
       subjects: parsed.subjects ?? INITIAL_DATA.subjects,
-      tasks: assignTaskOrder(parsed.tasks ?? INITIAL_DATA.tasks),
+      tasks: assignTaskOrder(
+        (parsed.tasks ?? INITIAL_DATA.tasks).map((task) => {
+          const weekdays = normalizeWeekdays(task.weekdays);
+          return weekdays ? { ...task, weekdays } : { ...task, weekdays: undefined };
+        }),
+      ),
       dayPlans: parsed.dayPlans ?? {},
       plannedHours: parsed.plannedHours ?? {},
       weekTexts: parsed.weekTexts ?? {},

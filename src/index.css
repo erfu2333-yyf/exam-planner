@@ -247,8 +247,22 @@ textarea.field {
 }
 
 .planner-table-week {
+  padding-right: 0;
+}
+
+.week-h-scroll {
   overflow-x: auto;
-  padding-right: 48px;
+  overflow-y: hidden;
+  max-width: 100%;
+}
+
+.week-h-scroll-barless {
+  scrollbar-width: none;
+}
+
+.week-h-scroll-barless::-webkit-scrollbar {
+  height: 0;
+  display: none;
 }
 
 .planner-table-head {

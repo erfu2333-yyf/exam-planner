@@ -9,16 +9,30 @@ import {
   weekCellKey,
   weekEndKey,
   weekStartKey,
+  weekdayOf,
 } from "./dateUtils";
 import type { DayEntry, DayMisc, DayPlan, PlannerData, Subject, Task } from "./types";
 
-/** 任务是否覆盖某一天 */
+/** 任务是否覆盖某一天：日期范围内，且命中固定周几（未设置则每天） */
 export function coversDay(task: Task, dateKey: string): boolean {
-  return task.startDate <= dateKey && dateKey <= task.endDate;
+  if (task.startDate > dateKey || dateKey > task.endDate) return false;
+  const days = normalizeWeekdays(task.weekdays);
+  if (!days) return true;
+  return days.includes(weekdayOf(dateKey));
+}
+
+export function normalizeWeekdays(raw: unknown): number[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  const unique = [
+    ...new Set(raw.map((item) => Number(item)).filter((item) => Number.isInteger(item) && item >= 0 && item <= 6)),
+  ].sort((left, right) => left - right);
+  if (unique.length === 0 || unique.length === 7) return undefined;
+  return unique;
 }
 
 /** 某一天这条任务的用时：当前周精细化覆盖，否则用总览日均 */
 export function hoursOnDay(data: PlannerData, task: Task, dateKey: string): number {
+  if (!coversDay(task, dateKey)) return 0;
   const override = data.dayHours?.[weekCellKey(task.id, dateKey)];
   if (typeof override === "number" && !Number.isNaN(override)) return Math.max(0, override);
   return Math.max(0, task.dailyHours);
@@ -26,6 +40,19 @@ export function hoursOnDay(data: PlannerData, task: Task, dateKey: string): numb
 
 export function weekCoveredDays(task: Task, days: string[]): string[] {
   return days.filter((dateKey) => coversDay(task, dateKey));
+}
+
+/** 日期范围内实际会做的总时长（只计固定周几） */
+export function hoursInRange(task: Task, fromKey: string, toKey: string): number {
+  if (task.endDate < fromKey || task.startDate > toKey) return 0;
+  let total = 0;
+  let key = task.startDate > fromKey ? task.startDate : fromKey;
+  const last = task.endDate < toKey ? task.endDate : toKey;
+  while (key <= last) {
+    if (coversDay(task, key)) total += Math.max(0, task.dailyHours);
+    key = addDays(key, 1);
+  }
+  return total;
 }
 
 /** 当前周日均：本周该任务总用时 / 有任务的天数 */
@@ -226,6 +253,12 @@ export function applyDailyHoursToDayPlans(
   const next: Record<string, DayPlan> = {};
   for (const [dateKey, plan] of Object.entries(dayPlans)) {
     const entry = plan[task.id];
+    if (entry && !coversDay(task, dateKey)) {
+      const { [task.id]: _removed, ...rest } = plan;
+      if (Object.keys(rest).length > 0) next[dateKey] = rest;
+      changed = true;
+      continue;
+    }
     if (!entry || !coversDay(task, dateKey)) {
       next[dateKey] = plan;
       continue;
@@ -270,7 +303,7 @@ export function plannedHoursOf(data: PlannerData, dateKey: string): number {
   return data.plannedHours[dateKey] ?? data.capacity;
 }
 
-/** 某周每天的日均负荷（按覆盖当天的总览日均累加后再平均） */
+/** 某周每天的日均负荷：只把真正有课的天计入，不把空着的周几拿来摊薄 */
 export function weekLoad(data: PlannerData, week: number, span: Span): Map<string, number> {
   const result = new Map<string, number>();
   const from = weekStartKey(week, span.origin);
@@ -278,14 +311,18 @@ export function weekLoad(data: PlannerData, week: number, span: Span): Map<strin
   const days = Math.max(1, diffDays(from, to) + 1);
   for (const subject of data.subjects) {
     let total = 0;
+    let active = 0;
     for (let index = 0; index < days; index++) {
       const dateKey = addDays(from, index);
-      total += data.tasks
+      const hours = data.tasks
         .filter((task) => task.subjectId === subject.id && coversDay(task, dateKey))
         .reduce((sum, task) => sum + task.dailyHours, 0);
+      if (hours > 0) {
+        total += hours;
+        active += 1;
+      }
     }
-    const average = total / days;
-    if (average > 0) result.set(subject.id, average);
+    if (active > 0) result.set(subject.id, total / active);
   }
   return result;
 }
@@ -429,6 +466,45 @@ export function reorderSubjectTasks(
       ? { ...task, order: rank.get(task.id) }
       : task,
   );
+}
+
+export function reorderSubjects(subjects: Subject[], dragId: string, hoverId: string): Subject[] {
+  const ids = subjects.map((subject) => subject.id);
+  const from = ids.indexOf(dragId);
+  const to = ids.indexOf(hoverId);
+  if (from < 0 || to < 0 || from === to) return subjects;
+  ids.splice(from, 1);
+  ids.splice(to, 0, dragId);
+  const rank = new Map(ids.map((id, index) => [id, index]));
+  return [...subjects].sort((left, right) => (rank.get(left.id) ?? 0) - (rank.get(right.id) ?? 0));
+}
+
+/** 改了固定周几或日期范围后，清掉不再覆盖的天的周格子和日计划 */
+export function pruneUncoveredTaskDays(data: PlannerData, task: Task): Pick<
+  PlannerData,
+  "dayPlans" | "dayHours" | "weekTexts"
+> {
+  const prefix = `${task.id}|`;
+  const dayHours: PlannerData["dayHours"] = {};
+  for (const [key, value] of Object.entries(data.dayHours ?? {})) {
+    if (key.startsWith(prefix) && !coversDay(task, key.slice(prefix.length))) continue;
+    dayHours[key] = value;
+  }
+  const weekTexts: PlannerData["weekTexts"] = {};
+  for (const [key, value] of Object.entries(data.weekTexts)) {
+    if (key.startsWith(prefix) && !coversDay(task, key.slice(prefix.length))) continue;
+    weekTexts[key] = value;
+  }
+  const dayPlans: PlannerData["dayPlans"] = {};
+  for (const [dateKey, plan] of Object.entries(data.dayPlans)) {
+    if (!plan[task.id] || coversDay(task, dateKey)) {
+      dayPlans[dateKey] = plan;
+      continue;
+    }
+    const { [task.id]: _removed, ...rest } = plan;
+    if (Object.keys(rest).length > 0) dayPlans[dateKey] = rest;
+  }
+  return { dayPlans, dayHours, weekTexts };
 }
 
 export function dropTaskRecords(data: PlannerData, taskIds: string[]): PlannerData {

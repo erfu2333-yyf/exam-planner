@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
+import { WEEKDAY_CHIPS } from "../dateUtils";
 import type { Subject } from "../types";
-import { Button, ColorPicker, Field, Modal, NumberField, TextField } from "./ui";
+import { Button, ColorPicker, Field, Modal, NumberField, Pill, TextField } from "./ui";
 
 export type TaskDraft = {
   id: string | null;
@@ -10,6 +11,7 @@ export type TaskDraft = {
   startDate: string;
   endDate: string;
   colorId: string;
+  weekdays: number[];
 };
 
 export function TaskEditor({
@@ -34,12 +36,14 @@ export function TaskEditor({
 
   const patch = (next: Partial<TaskDraft>) => setValue((current) => ({ ...current, ...next }));
   const invalidRange = value.startDate > value.endDate;
+  const hasWeekdays = value.weekdays.length > 0;
   const canSave =
     value.name.trim() !== "" &&
     value.startDate !== "" &&
     value.endDate !== "" &&
     !invalidRange &&
-    Number(value.dailyHours) > 0;
+    Number(value.dailyHours) > 0 &&
+    hasWeekdays;
 
   return (
     <Modal title={draft.id ? "编辑二级任务" : "添加二级任务"} onClose={onClose}>
@@ -98,6 +102,45 @@ export function TaskEditor({
             width={110}
             onChange={(dailyHours) => patch({ dailyHours })}
           />
+        </Field>
+
+        <Field label="每周哪几天">
+          <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+            <Pill
+              active={value.weekdays.length === 7}
+              onClick={() => patch({ weekdays: [0, 1, 2, 3, 4, 5, 6] })}
+            >
+              全选
+            </Pill>
+            {WEEKDAY_CHIPS.map((item) => {
+              const active = value.weekdays.includes(item.day);
+              return (
+                <Pill
+                  key={item.day}
+                  active={active}
+                  onClick={() => {
+                    const next = active
+                      ? value.weekdays.filter((day) => day !== item.day)
+                      : [...value.weekdays, item.day];
+                    patch({ weekdays: next });
+                  }}
+                >
+                  周{item.label}
+                </Pill>
+              );
+            })}
+          </div>
+          {hasWeekdays ? (
+            <div className="small muted-3" style={{ marginTop: 6 }}>
+              {value.weekdays.length === 7
+                ? "日期范围内每天都做"
+                : "只在选中的周几出现，不必连续"}
+            </div>
+          ) : (
+            <div className="small" style={{ color: "var(--danger)", marginTop: 6 }}>
+              至少选一天
+            </div>
+          )}
         </Field>
 
         <Field label="颜色">

@@ -164,6 +164,37 @@ export function plannerWeekDays(week: number, span: Span): string[] {
   return Array.from({ length: 7 }, (_, index) => addDays(saturday, index));
 }
 
+/** 当前周一次看 1 周或连续 2 周（不够两周就只到最后一周） */
+export function plannerVisibleDays(week: number, span: Span, weekCount: 1 | 2): string[] {
+  const total = spanWeeks(span);
+  const last = Math.min(week + weekCount - 1, Math.max(0, total - 1));
+  const days: string[] = [];
+  for (let index = week; index <= last; index++) days.push(...plannerWeekDays(index, span));
+  return days;
+}
+
+export function visibleWeekLabel(week: number, span: Span, weekCount: 1 | 2): string {
+  const total = spanWeeks(span);
+  const last = Math.min(week + weekCount - 1, Math.max(0, total - 1));
+  if (last <= week) return `第${week + 1}周 · ${weekRangeLabel(week, span)}`;
+  return `第${week + 1}–${last + 1}周 · ${formatMD(weekStartKey(week, span.origin))}–${formatMD(weekEndKey(last, span))}`;
+}
+
+/** 与当前周表头一致：周六到周五 */
+export const WEEKDAY_CHIPS: Array<{ day: number; label: string }> = [
+  { day: 6, label: "六" },
+  { day: 0, label: "日" },
+  { day: 1, label: "一" },
+  { day: 2, label: "二" },
+  { day: 3, label: "三" },
+  { day: 4, label: "四" },
+  { day: 5, label: "五" },
+];
+
+export function weekdayOf(key: string): number {
+  return parseKey(key).getDay();
+}
+
 export function timelineColumns(
   span: Span,
   weekFrom: number,

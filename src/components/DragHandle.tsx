@@ -2,13 +2,15 @@ import type { PointerEvent } from "react";
 
 export function DragHandle({
   onPointerDown,
+  title = "按住上下拖动，调整这条二级任务的顺序",
 }: {
   onPointerDown: (event: PointerEvent<HTMLButtonElement>) => void;
+  title?: string;
 }) {
   return (
     <button
       type="button"
-      title="按住上下拖动，调整这条二级任务的顺序"
+      title={title}
       onPointerDown={onPointerDown}
       style={{
         flexShrink: 0,

@@ -8,7 +8,7 @@ import {
   weekEndKey,
   weekStartKey,
 } from "./dateUtils";
-import { applyDailyHoursToDayPlans, dayPlanOf, findTask, weekTotal } from "./schedule";
+import { applyDailyHoursToDayPlans, dayPlanOf, findTask, pruneUncoveredTaskDays, weekTotal } from "./schedule";
 import type { PlannerData } from "./types";
 
 export type SuggestionAction =
@@ -50,6 +50,7 @@ export type PlanSnapshot = {
     startDate: string;
     endDate: string;
     method: string;
+    weekdays?: number[];
   }>;
   todayTasks: Array<{
     taskId: string;
@@ -92,6 +93,7 @@ export function buildPlanSnapshot(data: PlannerData): PlanSnapshot {
       startDate: task.startDate,
       endDate: task.endDate,
       method: task.method,
+      weekdays: task.weekdays,
     })),
     todayTasks: Object.entries(todayPlan).map(([taskId, entry]) => ({
       taskId,
@@ -147,10 +149,10 @@ export function applySuggestion(data: PlannerData, action: SuggestionAction): Pl
     startDate = endDate;
     endDate = swap;
   }
-  return {
+  const updated = { ...task, startDate, endDate };
+  const next = {
     ...data,
-    tasks: data.tasks.map((item) =>
-      item.id === task.id ? { ...item, startDate, endDate } : item,
-    ),
+    tasks: data.tasks.map((item) => (item.id === task.id ? updated : item)),
   };
+  return { ...next, ...pruneUncoveredTaskDays(next, updated) };
 }

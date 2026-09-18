@@ -1,27 +1,30 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   calendarKey,
   formatMD,
+  plannerVisibleDays,
   plannerWeekDays,
   spanWeeks,
   type Span,
+  visibleWeekLabel,
   weekCellKey,
   weekEndKey,
-  weekRangeLabel,
   weekStartKey,
   weekdayShort,
 } from "../dateUtils";
 import { coversDay, hoursOnDay, overlapsRange, plannedHoursOf, scheduledHoursOf, sortSubjectTasks, subjectsOnScreen, weekTaskAverage } from "../schedule";
 import { colorOf, tint } from "../theme";
 import type { PlannerData, Subject, Task } from "../types";
-import { Button, Callout, NumberField } from "./ui";
+import { Button, Callout, NumberField, Pill } from "./ui";
 import { DragHandle } from "./DragHandle";
-
-const GRID = "210px 74px minmax(784px, 1fr)";
 
 function dayClass(dateKey: string, today: string, header = false) {
   if (dateKey !== today) return undefined;
   return header ? "week-today-head" : "week-today";
+}
+
+function weekSplit(index: number): string {
+  return index > 0 && index % 7 === 0 ? "2px solid var(--stroke-strong)" : "1px solid var(--stroke)";
 }
 
 export function WeekView({
@@ -40,6 +43,7 @@ export function WeekView({
   onCellTextChange,
   onDragStart,
   onReorder,
+  onReorderSubject,
 }: {
   data: PlannerData;
   span: Span;
@@ -56,17 +60,32 @@ export function WeekView({
   onCellTextChange: (key: string, text: string) => void;
   onDragStart: () => void;
   onReorder: (dragId: string, hoverId: string) => void;
+  onReorderSubject: (dragId: string, hoverId: string) => void;
 }) {
   const [reportOpen, setReportOpen] = useState(false);
-  const [dragId, setDragId] = useState<string | null>(null);
+  const [weekCount, setWeekCount] = useState<1 | 2>(1);
+  const [drag, setDrag] = useState<{ kind: "task" | "subject"; id: string } | null>(null);
+  const headScrollRef = useRef<HTMLDivElement | null>(null);
+  const bodyScrollRef = useRef<HTMLDivElement | null>(null);
+  const syncHScroll = (left: number, source: HTMLDivElement) => {
+    for (const node of [headScrollRef.current, bodyScrollRef.current]) {
+      if (node && node !== source && node.scrollLeft !== left) node.scrollLeft = left;
+    }
+  };
   useEffect(() => {
-    if (!dragId) return;
+    if (!drag) return;
     const onMove = (event: PointerEvent) => {
       const node = document.elementFromPoint(event.clientX, event.clientY);
-      const hoverId = node instanceof Element ? node.closest("[data-task-id]")?.getAttribute("data-task-id") : null;
-      if (hoverId && hoverId !== dragId) onReorder(dragId, hoverId);
+      if (!(node instanceof Element)) return;
+      if (drag.kind === "subject") {
+        const hoverId = node.closest("[data-subject-id]")?.getAttribute("data-subject-id");
+        if (hoverId && hoverId !== drag.id) onReorderSubject(drag.id, hoverId);
+        return;
+      }
+      const hoverId = node.closest("[data-task-id]")?.getAttribute("data-task-id");
+      if (hoverId && hoverId !== drag.id) onReorder(drag.id, hoverId);
     };
-    const stop = () => setDragId(null);
+    const stop = () => setDrag(null);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", stop);
     window.addEventListener("pointercancel", stop);
@@ -75,15 +94,25 @@ export function WeekView({
       window.removeEventListener("pointerup", stop);
       window.removeEventListener("pointercancel", stop);
     };
-  }, [dragId, onReorder]);
+  }, [drag, onReorder, onReorderSubject]);
   const today = calendarKey();
   const totalWeeks = spanWeeks(span);
-  const days = plannerWeekDays(week, span);
+  const lastVisibleWeek = Math.min(week + weekCount - 1, Math.max(0, totalWeeks - 1));
+  const days = plannerVisibleDays(week, span, weekCount);
+  const focusDays = plannerWeekDays(week, span);
+  const cellMin = days.length > 7 ? 96 : 112;
+  const GRID = `210px 74px ${days.length * cellMin}px`;
+  const dayTrack = `repeat(${days.length}, minmax(${cellMin}px, 1fr))`;
   const fade = (dateKey: string) => (dateKey < today ? 0.55 : 1);
   const weekFrom = weekStartKey(week, span.origin);
-  const weekTo = weekEndKey(week, span);
+  const weekTo = weekEndKey(lastVisibleWeek, span);
   const weekTasks = data.tasks.filter((task) => overlapsRange(task, weekFrom, weekTo));
   const visibleSubjects = subjectsOnScreen(data.subjects, data.tasks, weekTasks);
+  useEffect(() => {
+    for (const node of [headScrollRef.current, bodyScrollRef.current]) {
+      if (node) node.scrollLeft = 0;
+    }
+  }, [week, weekCount]);
 
   return (
     <div className="stack" style={{ gap: 12 }}>
@@ -91,9 +120,17 @@ export function WeekView({
         <Button disabled={week === 0} onClick={() => onWeekChange(week - 1)}>
           ← 上一周
         </Button>
-        <strong style={{ fontSize: 17 }}>
-          第{week + 1}周 · {weekRangeLabel(week, span)}
-        </strong>
+        <div style={{ textAlign: "center" }}>
+          <strong style={{ fontSize: 17 }}>{visibleWeekLabel(week, span, weekCount)}</strong>
+          <div className="row" style={{ justifyContent: "center", gap: 6, marginTop: 6 }}>
+            <Pill active={weekCount === 1} onClick={() => setWeekCount(1)}>
+              一周
+            </Pill>
+            <Pill active={weekCount === 2} onClick={() => setWeekCount(2)}>
+              两周
+            </Pill>
+          </div>
+        </div>
         <Button disabled={week === totalWeeks - 1} onClick={() => onWeekChange(week + 1)}>
           下一周 →
         </Button>
@@ -101,20 +138,26 @@ export function WeekView({
 
       <div className="card planner-table planner-table-week">
         <div className="planner-table-head">
+        <div
+          ref={headScrollRef}
+          className="week-h-scroll week-h-scroll-barless"
+          onScroll={(event) => syncHScroll(event.currentTarget.scrollLeft, event.currentTarget)}
+        >
+        <div style={{ minWidth: 210 + 74 + days.length * cellMin }}>
         <div style={{ display: "grid", gridTemplateColumns: GRID, background: "var(--surface-3)" }}>
           <div style={{ padding: "8px 10px", fontWeight: 600 }}>任务清单</div>
           <div className="small" style={{ padding: "8px 2px", fontWeight: 600, textAlign: "center" }}>
             本周日均
           </div>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(112px, 1fr))" }}>
-            {days.map((dateKey) => (
+          <div style={{ display: "grid", gridTemplateColumns: dayTrack }}>
+            {days.map((dateKey, index) => (
               <div
                 key={dateKey}
                 className={dayClass(dateKey, today, true)}
                 style={{
                   padding: "5px 4px",
                   textAlign: "center",
-                  borderLeft: "1px solid var(--stroke)",
+                  borderLeft: weekSplit(index),
                   opacity: fade(dateKey),
                 }}
               >
@@ -145,8 +188,8 @@ export function WeekView({
             <div className="small muted-3">已排按日均用时累计</div>
           </div>
           <div />
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(112px, 1fr))" }}>
-            {days.map((dateKey) => {
+          <div style={{ display: "grid", gridTemplateColumns: dayTrack }}>
+            {days.map((dateKey, index) => {
               const planned = plannedHoursOf(data, dateKey);
               const arranged = scheduledHoursOf(data, dateKey);
               const over = arranged > planned;
@@ -156,7 +199,7 @@ export function WeekView({
                   className={dayClass(dateKey, today)}
                   style={{
                     padding: "6px 5px",
-                    borderLeft: "1px solid var(--stroke)",
+                    borderLeft: weekSplit(index),
                     opacity: fade(dateKey),
                   }}
                 >
@@ -203,18 +246,34 @@ export function WeekView({
           </div>
         </div>
         </div>
+        </div>
+        </div>
 
+        <div
+          ref={bodyScrollRef}
+          className="week-h-scroll"
+          onScroll={(event) => syncHScroll(event.currentTarget.scrollLeft, event.currentTarget)}
+        >
+        <div style={{ minWidth: 210 + 74 + days.length * cellMin }}>
         {visibleSubjects.map((subject) => {
           const subjectTasks = weekTasks.filter((task) => task.subjectId === subject.id);
           return (
-            <div key={subject.id}>
+            <div key={subject.id} data-subject-id={subject.id}>
               <WeekSubjectRow
                 data={data}
                 subject={subject}
                 tasks={subjectTasks}
                 days={days}
                 today={today}
+                grid={GRID}
+                dayTrack={dayTrack}
+                dragging={drag?.kind === "subject" && drag.id === subject.id}
                 onManage={() => onManageSubject(subject)}
+                onDragPointerDown={(event) => {
+                  event.preventDefault();
+                  onDragStart();
+                  setDrag({ kind: "subject", id: subject.id });
+                }}
               />
               {sortSubjectTasks(subjectTasks).map((task) => {
                 const methodOpen = methodId === task.id;
@@ -226,7 +285,7 @@ export function WeekView({
                     display: "grid",
                     gridTemplateColumns: GRID,
                     borderTop: "1px solid var(--stroke)",
-                    background: dragId === task.id ? "var(--surface-2)" : undefined,
+                    background: drag?.kind === "task" && drag.id === task.id ? "var(--surface-2)" : undefined,
                   }}
                 >
                   <div
@@ -244,7 +303,7 @@ export function WeekView({
                         onPointerDown={(event) => {
                           event.preventDefault();
                           onDragStart();
-                          setDragId(task.id);
+                          setDrag({ kind: "task", id: task.id });
                         }}
                       />
                       <button
@@ -287,10 +346,10 @@ export function WeekView({
                     }}
                   >
                     <NumberField
-                      value={weekTaskAverage(data, task, days)}
+                      value={weekTaskAverage(data, task, focusDays)}
                       width={58}
                       onChange={(value) => onWeekAverageChange(task.id, Number(value) || 0)}
-                      title="本周日均：本周总用时÷有任务的天数，只改当前周"
+                      title="本周日均：左边一周总用时÷有任务的天数，只改那一周"
                     />
                   </div>
                   <div
@@ -298,10 +357,10 @@ export function WeekView({
                       gridColumn: 3,
                       gridRow: methodOpen ? "1 / 3" : "1",
                     display: "grid",
-                    gridTemplateColumns: "repeat(7, minmax(112px, 1fr))",
+                    gridTemplateColumns: dayTrack,
                     }}
                   >
-                    {days.map((dateKey) => {
+                    {days.map((dateKey, index) => {
                       const active = coversDay(task, dateKey);
                       const cellKey = weekCellKey(task.id, dateKey);
                       return (
@@ -310,7 +369,7 @@ export function WeekView({
                           className={dayClass(dateKey, today)}
                           style={{
                             padding: 5,
-                            borderLeft: "1px solid var(--stroke)",
+                            borderLeft: weekSplit(index),
                             background: active
                               ? dateKey === today
                                 ? tint(task.colorId, 0.28)
@@ -377,6 +436,8 @@ export function WeekView({
             本周没有任务
           </div>
         ) : null}
+        </div>
+        </div>
       </div>
 
       <div className="row" style={{ justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
@@ -420,36 +481,44 @@ function WeekSubjectRow({
   tasks,
   days,
   today,
+  grid,
+  dayTrack,
+  dragging,
   onManage,
+  onDragPointerDown,
 }: {
   data: PlannerData;
   subject: Subject;
   tasks: Task[];
   days: string[];
   today: string;
+  grid: string;
+  dayTrack: string;
+  dragging: boolean;
   onManage: () => void;
+  onDragPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
 }) {
   const perDay = days.map((dateKey) =>
     tasks
       .filter((task) => coversDay(task, dateKey))
       .reduce((sum, task) => sum + hoursOnDay(data, task, dateKey), 0),
   );
-  const activeDays = perDay.filter((value) => value > 0);
-  const average =
-    activeDays.length === 0
-      ? 0
-      : activeDays.reduce((sum, value) => sum + value, 0) / activeDays.length;
+  const total = perDay.reduce((sum, value) => sum + value, 0);
 
   return (
     <div
       style={{
         display: "grid",
-        gridTemplateColumns: GRID,
-        background: "var(--surface-2)",
+        gridTemplateColumns: grid,
+        background: dragging ? "var(--surface-3)" : "var(--surface-2)",
         borderTop: "2px solid var(--stroke-strong)",
       }}
     >
-      <div style={{ padding: "6px 10px" }}>
+      <div style={{ padding: "6px 10px", display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+        <DragHandle
+          title="按住上下拖动，调整一级任务的显示顺序"
+          onPointerDown={onDragPointerDown}
+        />
         <button
           type="button"
           title="点击管理一级任务"
@@ -468,9 +537,9 @@ function WeekSubjectRow({
         </button>
       </div>
       <div className="small" style={{ padding: "9px 2px", textAlign: "center", fontWeight: 600 }}>
-        均 {average.toFixed(1)}h
+        共 {total.toFixed(1)}h
       </div>
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, minmax(112px, 1fr))" }}>
+      <div style={{ display: "grid", gridTemplateColumns: dayTrack }}>
         {perDay.map((value, index) => (
           <div
             key={index}
@@ -478,7 +547,7 @@ function WeekSubjectRow({
             style={{
               padding: "9px 2px",
               textAlign: "center",
-              borderLeft: "1px solid var(--stroke)",
+              borderLeft: weekSplit(index),
               fontWeight: 600,
               color: value > 0 ? "var(--text)" : "var(--text-3)",
               opacity: days[index] < today ? 0.55 : 1,

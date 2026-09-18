@@ -41,6 +41,9 @@ import {
   generateDayPlan,
   overflowAfterShift,
   reorderSubjectTasks,
+  reorderSubjects,
+  pruneUncoveredTaskDays,
+  normalizeWeekdays,
   nextTaskOrder,
   subjectOf,
   tasksOfDay,
@@ -141,13 +144,20 @@ export default function App() {
         task.id === taskId ? { ...task, ...patch } : task,
       );
       const updated = tasks.find((task) => task.id === taskId);
+      if (!updated) return current;
+      const rangeChanged =
+        patch.startDate != null || patch.endDate != null || patch.weekdays != null;
+      const pruned = rangeChanged
+        ? pruneUncoveredTaskDays({ ...current, tasks }, updated)
+        : { dayPlans: current.dayPlans, dayHours: current.dayHours, weekTexts: current.weekTexts };
       return {
         ...current,
         tasks,
+        ...pruned,
         dayPlans:
-          patch.dailyHours != null && updated
-            ? applyDailyHoursToDayPlans(current.dayPlans, updated)
-            : current.dayPlans,
+          patch.dailyHours != null
+            ? applyDailyHoursToDayPlans(pruned.dayPlans, updated)
+            : pruned.dayPlans,
       };
     };
     (undoable ? commit : update)(apply);
@@ -183,7 +193,7 @@ export default function App() {
   const setDayHours = (taskId: string, dateKey: string, hours: number) => {
     update((current) => {
       const task = current.tasks.find((item) => item.id === taskId);
-      if (!task) return current;
+      if (!task || !coversDay(task, dateKey)) return current;
       return {
         ...current,
         dayHours: writeDayHours(current.dayHours, task, dateKey, hours),
@@ -210,6 +220,7 @@ export default function App() {
 
   const saveTask = (draft: TaskDraft) => {
     commit((current) => {
+      const weekdays = normalizeWeekdays(draft.weekdays);
       const fields = {
         subjectId: draft.subjectId,
         name: draft.name.trim(),
@@ -218,22 +229,40 @@ export default function App() {
         endDate: draft.endDate,
         colorId: draft.colorId,
       };
+      const stampWeekdays = (task: Task): Task => {
+        const next = { ...task, ...fields };
+        if (weekdays) next.weekdays = weekdays;
+        else delete next.weekdays;
+        return next;
+      };
       if (draft.id) {
-        const tasks = current.tasks.map((task) =>
-          task.id === draft.id ? { ...task, ...fields } : task,
-        );
+        const tasks = current.tasks.map((task) => (task.id === draft.id ? stampWeekdays(task) : task));
         const updated = tasks.find((task) => task.id === draft.id);
+        if (!updated) return current;
+        const pruned = pruneUncoveredTaskDays({ ...current, tasks }, updated);
         return {
           ...current,
           tasks,
-          dayPlans: updated
-            ? applyDailyHoursToDayPlans(current.dayPlans, updated)
-            : current.dayPlans,
+          ...pruned,
+          dayPlans: applyDailyHoursToDayPlans(pruned.dayPlans, updated),
         };
       }
       return {
         ...current,
-        tasks: [...current.tasks, { id: `task-${Date.now()}`, method: "", order: nextTaskOrder(current.tasks, draft.subjectId), ...fields }],
+        tasks: [
+          ...current.tasks,
+          stampWeekdays({
+            id: `task-${Date.now()}`,
+            method: "",
+            order: nextTaskOrder(current.tasks, draft.subjectId),
+            subjectId: fields.subjectId,
+            name: fields.name,
+            dailyHours: fields.dailyHours,
+            startDate: fields.startDate,
+            endDate: fields.endDate,
+            colorId: fields.colorId,
+          }),
+        ],
       };
     });
     setTaskDraft(null);
@@ -273,6 +302,7 @@ export default function App() {
       startDate: today,
       endDate: lastDay,
       colorId: subject?.colorId ?? "blue",
+      weekdays: [0, 1, 2, 3, 4, 5, 6],
     });
   };
 
@@ -285,6 +315,7 @@ export default function App() {
       startDate: task.startDate,
       endDate: task.endDate,
       colorId: task.colorId,
+      weekdays: task.weekdays ?? [0, 1, 2, 3, 4, 5, 6],
     });
   };
 
@@ -507,6 +538,12 @@ export default function App() {
               };
             })
           }
+          onReorderSubject={(dragId, hoverId) =>
+            update((current) => ({
+              ...current,
+              subjects: reorderSubjects(current.subjects, dragId, hoverId),
+            }))
+          }
           onImport={(subjects) => commit((current) => applyImport(current, subjects))}
         />
       ) : null}
@@ -558,6 +595,12 @@ export default function App() {
                 tasks: reorderSubjectTasks(current.tasks, drag.subjectId, dragId, hoverId),
               };
             })
+          }
+          onReorderSubject={(dragId, hoverId) =>
+            update((current) => ({
+              ...current,
+              subjects: reorderSubjects(current.subjects, dragId, hoverId),
+            }))
           }
         />
       ) : null}

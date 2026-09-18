@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   columnTrack,
   formatMD,
@@ -11,7 +11,7 @@ import {
   weekEndKey,
   weekStartKey,
 } from "../dateUtils";
-import { overlapsRange, sortSubjectTasks, subjectsOnScreen } from "../schedule";
+import { hoursInRange, overlapsRange, sortSubjectTasks, subjectsOnScreen } from "../schedule";
 import { colorOf } from "../theme";
 import type { PlannerData, Subject, Task } from "../types";
 import { GanttBar, PhaseLines, TodayCaption, TodayLine } from "./GanttBar";
@@ -45,6 +45,7 @@ export function OverviewView({
   onCapacityChange,
   onDragStart,
   onReorder,
+  onReorderSubject,
   onImport,
 }: {
   data: PlannerData;
@@ -63,10 +64,11 @@ export function OverviewView({
   onCapacityChange: (value: number) => void;
   onDragStart: () => void;
   onReorder: (dragId: string, hoverId: string) => void;
+  onReorderSubject: (dragId: string, hoverId: string) => void;
   onImport: (subjects: ImportSubject[]) => void;
 }) {
   const [scale, setScale] = useState<TimelineScale>("week");
-  const [dragId, setDragId] = useState<string | null>(null);
+  const [drag, setDrag] = useState<{ kind: "task" | "subject"; id: string } | null>(null);
   const captionClipRef = useRef<HTMLDivElement | null>(null);
   const headClipRef = useRef<HTMLDivElement | null>(null);
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -76,13 +78,19 @@ export function OverviewView({
     }
   };
   useEffect(() => {
-    if (!dragId) return;
+    if (!drag) return;
     const onMove = (event: PointerEvent) => {
       const node = document.elementFromPoint(event.clientX, event.clientY);
-      const hoverId = node instanceof Element ? node.closest("[data-task-id]")?.getAttribute("data-task-id") : null;
-      if (hoverId && hoverId !== dragId) onReorder(dragId, hoverId);
+      if (!(node instanceof Element)) return;
+      if (drag.kind === "subject") {
+        const hoverId = node.closest("[data-subject-id]")?.getAttribute("data-subject-id");
+        if (hoverId && hoverId !== drag.id) onReorderSubject(drag.id, hoverId);
+        return;
+      }
+      const hoverId = node.closest("[data-task-id]")?.getAttribute("data-task-id");
+      if (hoverId && hoverId !== drag.id) onReorder(drag.id, hoverId);
     };
-    const stop = () => setDragId(null);
+    const stop = () => setDrag(null);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", stop);
     window.addEventListener("pointercancel", stop);
@@ -91,7 +99,7 @@ export function OverviewView({
       window.removeEventListener("pointerup", stop);
       window.removeEventListener("pointercancel", stop);
     };
-  }, [dragId, onReorder]);
+  }, [drag, onReorder, onReorderSubject]);
   const totalWeeks = spanWeeks(span);
   const from = Math.max(1, Math.min(totalWeeks, Number(filterFrom) || 1));
   const to = Math.max(from, Math.min(totalWeeks, Number(filterTo) || totalWeeks));
@@ -226,7 +234,7 @@ export function OverviewView({
             visibleTasks.filter((task) => task.subjectId === subject.id),
           );
           return (
-            <div key={subject.id}>
+            <div key={subject.id} data-subject-id={subject.id}>
               <SubjectRow
                 subject={subject}
                 tasks={subjectTasks}
@@ -236,7 +244,13 @@ export function OverviewView({
                 weekFrom={weekFrom}
                 weekTo={weekTo}
                 minWidth={rowMinWidth}
+                dragging={drag?.kind === "subject" && drag.id === subject.id}
                 onManage={() => onManageSubject(subject)}
+                onDragPointerDown={(event) => {
+                  event.preventDefault();
+                  onDragStart();
+                  setDrag({ kind: "subject", id: subject.id });
+                }}
               />
               {subjectTasks.map((task) => {
                 const methodOpen = methodId === task.id;
@@ -249,12 +263,16 @@ export function OverviewView({
                       gridTemplateColumns: GRID,
                       borderTop: "1px solid var(--stroke)",
                       background:
-                        task.id === selectedId || dragId === task.id
+                        task.id === selectedId || (drag?.kind === "task" && drag.id === task.id)
                           ? "var(--surface-2)"
                           : "var(--surface)",
                       minWidth: rowMinWidth,
                     }}
-                    className={task.id === selectedId || dragId === task.id ? "planner-row-active" : undefined}
+                    className={
+                      task.id === selectedId || (drag?.kind === "task" && drag.id === task.id)
+                        ? "planner-row-active"
+                        : undefined
+                    }
                   >
                     <div
                       className="planner-stick-name"
@@ -272,7 +290,7 @@ export function OverviewView({
                         onPointerDown={(event) => {
                           event.preventDefault();
                           onDragStart();
-                          setDragId(task.id);
+                          setDrag({ kind: "task", id: task.id });
                         }}
                       />
                       <button
@@ -470,7 +488,9 @@ function SubjectRow({
   weekFrom,
   weekTo,
   minWidth,
+  dragging,
   onManage,
+  onDragPointerDown,
 }: {
   subject: Subject;
   tasks: Task[];
@@ -480,12 +500,12 @@ function SubjectRow({
   weekFrom: number;
   weekTo: number;
   minWidth?: number;
+  dragging: boolean;
   onManage: () => void;
+  onDragPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
 }) {
   const values = columns.map((column) =>
-    tasks
-      .filter((task) => overlapsRange(task, column.start, column.end))
-      .reduce((sum, task) => sum + task.dailyHours, 0),
+    tasks.reduce((sum, task) => sum + hoursInRange(task, column.start, column.end), 0),
   );
 
   return (
@@ -494,12 +514,19 @@ function SubjectRow({
       style={{
         display: "grid",
         gridTemplateColumns: GRID,
-        background: "var(--surface-2)",
+        background: dragging ? "var(--surface-3)" : "var(--surface-2)",
         borderTop: "2px solid var(--stroke-strong)",
         minWidth,
       }}
     >
-      <div className="planner-stick-name" style={{ padding: "6px 10px" }}>
+      <div
+        className="planner-stick-name"
+        style={{ padding: "6px 10px", display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}
+      >
+        <DragHandle
+          title="按住上下拖动，调整一级任务的显示顺序"
+          onPointerDown={onDragPointerDown}
+        />
         <button
           type="button"
           title="点击管理一级任务（改名、添加二级任务、删除）"
