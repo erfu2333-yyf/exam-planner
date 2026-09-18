@@ -33,6 +33,8 @@ export type DayMisc = {
   start: number;
   end: number;
   status: TaskStatus;
+  /** 缺省按灰处理，兼容旧数据；新加的事项会分配调色板颜色 */
+  colorId?: string;
 };
 
 export type DayEntry = {

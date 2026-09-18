@@ -34,6 +34,7 @@ import { applyImport } from "./planImport";
 import {
   appendDayMiscs,
   applyDailyHoursToDayPlans,
+  colorsOnDay,
   dayPlanOf,
   dayPlanCapacityError,
   dropTaskRecords,
@@ -48,6 +49,7 @@ import {
   coversDay,
 } from "./schedule";
 import { usePlanner } from "./storage";
+import { GRAY_ID, pickUnusedColor } from "./theme";
 import type { DayEntry, PlannerData, Subject, Task, ViewKey } from "./types";
 import { profileNeedsPass, useWorkspace } from "./workspace";
 
@@ -581,26 +583,38 @@ export default function App() {
           }
           onMoveTomorrow={(taskId) => moveTaskToTomorrow(dayKey, taskId)}
           onShiftPlan={() => shiftWholePlan(1)}
-          onAddMisc={(name, start, end) =>
-            update((current) => ({
-              ...current,
-              dayMiscs: {
-                ...current.dayMiscs,
-                [dayKey]: [
-                  ...(current.dayMiscs[dayKey] ?? []),
-                  { id: `misc-${Date.now()}`, name, start, end, status: "pending" },
-                ],
-              },
-            }))
+          onAddMisc={(name, start, end, gray) =>
+            update((current) => {
+              const used = colorsOnDay(current, dayKey);
+              const colorId = gray ? GRAY_ID : pickUnusedColor(used);
+              return {
+                ...current,
+                dayMiscs: {
+                  ...current.dayMiscs,
+                  [dayKey]: [
+                    ...(current.dayMiscs[dayKey] ?? []),
+                    { id: `misc-${Date.now()}`, name, start, end, status: "pending", colorId },
+                  ],
+                },
+              };
+            })
           }
           onAddDayItems={(items) =>
-            update((current) => ({
-              ...current,
-              dayMiscs: {
-                ...current.dayMiscs,
-                [dayKey]: appendDayMiscs(current.dayMiscs[dayKey] ?? [], items),
-              },
-            }))
+            update((current) => {
+              const used = colorsOnDay(current, dayKey);
+              const colored = items.map((item) => {
+                const colorId = item.gray ? GRAY_ID : pickUnusedColor(used);
+                if (colorId !== GRAY_ID) used.add(colorId);
+                return { ...item, colorId };
+              });
+              return {
+                ...current,
+                dayMiscs: {
+                  ...current.dayMiscs,
+                  [dayKey]: appendDayMiscs(current.dayMiscs[dayKey] ?? [], colored),
+                },
+              };
+            })
           }
           onPatchMisc={(miscId, patch) =>
             update((current) => ({

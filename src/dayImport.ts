@@ -5,6 +5,7 @@ export type DayImportItem = {
   name: string;
   hours: number;
   slot?: DayMiscSlot;
+  gray?: boolean;
 };
 
 export type DayImportPreview = {
@@ -31,8 +32,9 @@ export function coerceDayImport(raw: unknown): DayImportPreview {
   const items: DayImportItem[] = [];
   list.forEach((entry, index) => {
     if (!entry || typeof entry !== "object") return;
-    const row = entry as { name?: unknown; hours?: unknown; slot?: unknown };
-    const name = String(row.name ?? "").trim();
+    const row = entry as { name?: unknown; hours?: unknown; slot?: unknown; gray?: unknown };
+    const parsed = parseMiscName(String(row.name ?? ""));
+    const name = parsed.name;
     if (!name) {
       errors.push(`第${index + 1}条缺少任务名`);
       return;
@@ -44,7 +46,8 @@ export function coerceDayImport(raw: unknown): DayImportPreview {
     }
     const slotRaw = String(row.slot ?? "").trim();
     const slot = SLOTS.find((item) => item === slotRaw);
-    items.push(slot ? { name, hours, slot } : { name, hours });
+    const gray = parsed.gray || isGrayFlag(row.gray);
+    items.push({ name, hours, ...(slot ? { slot } : {}), ...(gray ? { gray: true } : {}) });
   });
 
   return {
@@ -59,4 +62,21 @@ export function slotLabel(slot?: DayMiscSlot): string {
   if (slot === "afternoon") return "下午";
   if (slot === "evening") return "晚上";
   return "—";
+}
+
+/** 只有主动写成灰色标签时才走灰色，避免默认灰。 */
+export function parseMiscName(raw: string): { name: string; gray: boolean } {
+  const trimmed = raw.trim();
+  const tagged = trimmed.match(/^(?:灰色|gray)\s*[:：,，-]?\s+(.+)$/i);
+  if (tagged?.[1]) return { name: tagged[1].trim(), gray: true };
+  const colon = trimmed.match(/^(?:灰色|gray)\s*[:：]\s*(.+)$/i);
+  if (colon?.[1]) return { name: colon[1].trim(), gray: true };
+  if (/^(?:灰色|gray)$/i.test(trimmed)) return { name: trimmed, gray: true };
+  return { name: trimmed, gray: false };
+}
+
+function isGrayFlag(value: unknown): boolean {
+  if (value === true) return true;
+  const text = String(value ?? "").trim().toLowerCase();
+  return text === "gray" || text === "grey" || text === "灰色";
 }

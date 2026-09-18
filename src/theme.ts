@@ -25,8 +25,21 @@ export const PALETTE: Palette[] = [
 
 const FALLBACK = PALETTE[6];
 
+/** 不进选色器。当日事项只有主动要求时才用。 */
+export const GRAY_ID = "gray";
+const GRAY_BASE = "#8a8f98";
+
 export function colorOf(colorId: string): string {
+  if (colorId === GRAY_ID) return GRAY_BASE;
   return (PALETTE.find((item) => item.id === colorId) ?? FALLBACK).base;
+}
+
+/** 优先从还没用过的配色里随机抽；用尽后再从全表随机，避免默认灰。 */
+export function pickUnusedColor(used: Iterable<string>): string {
+  const taken = new Set(used);
+  const free = PALETTE.filter((item) => !taken.has(item.id));
+  const pool = free.length > 0 ? free : PALETTE;
+  return pool[Math.floor(Math.random() * pool.length)].id;
 }
 
 /** 甘特条和任务块用的渐变，带一点高光更鲜亮 */

@@ -7,16 +7,14 @@ import {
   formatHour,
   snapHour,
 } from "../dateUtils";
-import type { DayImportItem } from "../dayImport";
+import { parseMiscName, type DayImportItem } from "../dayImport";
 import { dayPlanCapacityError, dayPlanOf, entryHours, placeMiscAtBottom, plannedHoursOf, subjectOf, tasksOfDay } from "../schedule";
-import { gradientOf, tint } from "../theme";
+import { GRAY_ID, gradientOf, tint } from "../theme";
 import type { DayEntry, DayMisc, PlannerData, TaskStatus } from "../types";
 import { DayImportPanel } from "./DayImportPanel";
 import { Button, Callout, NumberField } from "./ui";
 
 const PX_PER_HOUR = 36;
-const MISC_FILL = "#8a8f98";
-const MISC_TINT = "rgba(138, 143, 152, 0.42)";
 
 type Drag =
   | { kind: "task"; id: string; mode: "move" | "resize"; grabOffset: number }
@@ -52,7 +50,7 @@ export function DayView({
   onNoteChange: (text: string) => void;
   onMoveTomorrow: (taskId: string) => void;
   onShiftPlan: () => void;
-  onAddMisc: (name: string, start: number, end: number) => void;
+  onAddMisc: (name: string, start: number, end: number, gray?: boolean) => void;
   onAddDayItems: (items: DayImportItem[]) => void;
   onPatchMisc: (miscId: string, patch: Partial<DayMisc>) => void;
   onRemoveMisc: (miscId: string) => void;
@@ -141,11 +139,11 @@ export function DayView({
   }, [menu, miscMenu]);
 
   const addMisc = () => {
-    const name = miscDraft.trim();
+    const parsed = parseMiscName(miscDraft);
     const duration = Number(miscHours) || 0;
-    if (!name || duration <= 0) return;
+    if (!parsed.name || duration <= 0) return;
     const slot = placeMiscAtBottom(miscs, duration);
-    onAddMisc(name, slot.start, slot.end);
+    onAddMisc(parsed.name, slot.start, slot.end, parsed.gray);
     setMiscDraft("");
     setMiscHours("1");
   };
@@ -343,6 +341,7 @@ export function DayView({
                 const top = (item.start - HOUR_START) * PX_PER_HOUR + 1;
                 const height = Math.max(0.5, item.end - item.start) * PX_PER_HOUR - 2;
                 const compact = height < 40;
+                const colorId = item.colorId ?? GRAY_ID;
                 return (
                   <div
                     key={item.id}
@@ -357,8 +356,8 @@ export function DayView({
                       top,
                       height,
                       borderRadius: compact ? 5 : 8,
-                      background: MISC_TINT,
-                      borderLeft: `4px solid ${MISC_FILL}`,
+                      background: tint(colorId, 0.42),
+                      borderLeft: `4px solid ${gradientOf(colorId)}`,
                       overflow: "hidden",
                       zIndex: 4,
                     }}
@@ -390,7 +389,6 @@ export function DayView({
                           display: "flex",
                           justifyContent: "space-between",
                           gap: 6,
-                          color: "#4b5563",
                           width: "100%",
                           minWidth: 0,
                         }}
@@ -533,7 +531,7 @@ export function DayView({
                     gap: 7,
                     padding: "4px 6px",
                     borderRadius: 6,
-                    background: MISC_TINT,
+                    background: tint(item.colorId ?? GRAY_ID, 0.16),
                     cursor: "context-menu",
                   }}
                 >

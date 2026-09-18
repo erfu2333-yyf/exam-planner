@@ -331,9 +331,20 @@ export function placeMiscForSlot(
   return placeMiscAtBottom(existing, duration);
 }
 
+/** 总览表和当天已有色块用过的颜色，用来给新事项避开重复 */
+export function colorsOnDay(data: PlannerData, dateKey: string): Set<string> {
+  const used = new Set<string>();
+  for (const subject of data.subjects) used.add(subject.colorId);
+  for (const task of data.tasks) used.add(task.colorId);
+  for (const misc of data.dayMiscs[dateKey] ?? []) {
+    if (misc.colorId) used.add(misc.colorId);
+  }
+  return used;
+}
+
 export function appendDayMiscs(
   existing: DayMisc[],
-  items: Array<{ name: string; hours: number; slot?: DayMiscSlot }>,
+  items: Array<{ name: string; hours: number; slot?: DayMiscSlot; colorId: string }>,
   now = Date.now(),
 ): DayMisc[] {
   const next = [...existing];
@@ -345,6 +356,7 @@ export function appendDayMiscs(
       start: placed.start,
       end: placed.end,
       status: "pending",
+      colorId: item.colorId,
     });
   });
   return next;
