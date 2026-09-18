@@ -308,6 +308,48 @@ export function placeMiscAtBottom(existing: DayMisc[], hours: number): { start: 
   return { start, end: start + duration };
 }
 
+export type DayMiscSlot = "morning" | "afternoon" | "evening";
+
+/** 有上午/下午/晚上偏好就往对应时段塞，塞不下再落到时间轴底部 */
+export function placeMiscForSlot(
+  existing: DayMisc[],
+  hours: number,
+  slot?: DayMiscSlot,
+): { start: number; end: number } {
+  const duration = Math.max(0.5, snapHour(hours));
+  if (!slot) return placeMiscAtBottom(existing, duration);
+  const from = slot === "morning" ? HOUR_START : slot === "afternoon" ? 13 : 19;
+  const to = slot === "morning" ? 12 : slot === "afternoon" ? 18 : HOUR_END;
+  let cursor = from;
+  const sorted = [...existing].sort((left, right) => left.start - right.start);
+  for (const item of sorted) {
+    if (item.end <= cursor || item.start >= cursor + duration) continue;
+    cursor = Math.max(cursor, item.end);
+  }
+  cursor = snapHour(cursor);
+  if (cursor + duration <= to + 0.05) return { start: cursor, end: cursor + duration };
+  return placeMiscAtBottom(existing, duration);
+}
+
+export function appendDayMiscs(
+  existing: DayMisc[],
+  items: Array<{ name: string; hours: number; slot?: DayMiscSlot }>,
+  now = Date.now(),
+): DayMisc[] {
+  const next = [...existing];
+  items.forEach((item, index) => {
+    const placed = placeMiscForSlot(next, item.hours, item.slot);
+    next.push({
+      id: `misc-${now}-${index}`,
+      name: item.name,
+      start: placed.start,
+      end: placed.end,
+      status: "pending",
+    });
+  });
+  return next;
+}
+
 /** 把任务整体后移若干天，不越过周期末尾 */
 export function shiftTask(task: Task, days: number, maxEndKey: string): Task {
   const room = diffDays(task.endDate, maxEndKey);

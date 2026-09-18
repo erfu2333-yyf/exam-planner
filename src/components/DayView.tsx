@@ -7,9 +7,11 @@ import {
   formatHour,
   snapHour,
 } from "../dateUtils";
+import type { DayImportItem } from "../dayImport";
 import { dayPlanCapacityError, dayPlanOf, entryHours, placeMiscAtBottom, plannedHoursOf, subjectOf, tasksOfDay } from "../schedule";
 import { gradientOf, tint } from "../theme";
 import type { DayEntry, DayMisc, PlannerData, TaskStatus } from "../types";
+import { DayImportPanel } from "./DayImportPanel";
 import { Button, Callout, NumberField } from "./ui";
 
 const PX_PER_HOUR = 36;
@@ -34,6 +36,7 @@ export function DayView({
   onMoveTomorrow,
   onShiftPlan,
   onAddMisc,
+  onAddDayItems,
   onPatchMisc,
   onRemoveMisc,
 }: {
@@ -50,6 +53,7 @@ export function DayView({
   onMoveTomorrow: (taskId: string) => void;
   onShiftPlan: () => void;
   onAddMisc: (name: string, start: number, end: number) => void;
+  onAddDayItems: (items: DayImportItem[]) => void;
   onPatchMisc: (miscId: string, patch: Partial<DayMisc>) => void;
   onRemoveMisc: (miscId: string) => void;
 }) {
@@ -71,7 +75,10 @@ export function DayView({
     tasks.reduce((sum, task) => sum + (plan[task.id] ? entryHours(plan[task.id]) : 0), 0) +
     miscs.reduce((sum, item) => sum + Math.max(0, item.end - item.start), 0);
   const planned = plannedHoursOf(data, dateKey);
-  const doneCount = tasks.filter((task) => plan[task.id]?.status === "done").length;
+  const doneCount =
+    tasks.filter((task) => plan[task.id]?.status === "done").length +
+    miscs.filter((item) => item.status === "done").length;
+  const listCount = tasks.length + miscs.length;
 
   const hourFromClientY = (clientY: number): number => {
     const track = trackRef.current;
@@ -460,7 +467,7 @@ export function DayView({
             <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
               <strong>今日执行清单</strong>
               <span className="small muted">
-                {doneCount}/{tasks.length} · 科目任务可右键
+                {doneCount}/{listCount} · 科目任务可右键
               </span>
             </div>
             <div className="stack" style={{ gap: 4 }}>
@@ -514,7 +521,54 @@ export function DayView({
                   </div>
                 );
               })}
-              {tasks.length === 0 ? <span className="muted small">今天没有科目任务</span> : null}
+              {miscs.map((item) => (
+                <div
+                  key={item.id}
+                  className="row"
+                  onContextMenu={(event) => {
+                    event.preventDefault();
+                    setMiscMenu({ miscId: item.id, x: event.clientX, y: event.clientY });
+                  }}
+                  style={{
+                    gap: 7,
+                    padding: "4px 6px",
+                    borderRadius: 6,
+                    background: MISC_TINT,
+                    cursor: "context-menu",
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={item.status === "done"}
+                    onChange={(event) =>
+                      onPatchMisc(item.id, {
+                        status: (event.target.checked ? "done" : "pending") as TaskStatus,
+                      })
+                    }
+                    style={{ width: 16, height: 16, flexShrink: 0, cursor: "pointer" }}
+                  />
+                  <span
+                    className="small"
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                      textDecoration: item.status === "done" ? "line-through" : "none",
+                      color: item.status === "done" ? "var(--text-3)" : "var(--text)",
+                    }}
+                  >
+                    {item.name}
+                  </span>
+                  <span className="small muted-3" style={{ flexShrink: 0 }}>
+                    {Math.max(0, item.end - item.start).toFixed(1)}h
+                  </span>
+                </div>
+              ))}
+              {tasks.length === 0 && miscs.length === 0 ? (
+                <span className="muted small">今天还没有清单事项</span>
+              ) : null}
               <div className="row" style={{ gap: 6, marginTop: 8 }}>
                 <input
                   className="field"
@@ -611,6 +665,8 @@ export function DayView({
           style={{ marginTop: 8 }}
         />
       </div>
+
+      <DayImportPanel dateKey={dateKey} onImport={onAddDayItems} />
     </div>
   );
 }

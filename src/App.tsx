@@ -32,6 +32,7 @@ import {
 import { planToMarkdown } from "./exportPlan";
 import { applyImport } from "./planImport";
 import {
+  appendDayMiscs,
   applyDailyHoursToDayPlans,
   dayPlanOf,
   dayPlanCapacityError,
@@ -589,6 +590,15 @@ export default function App() {
                   ...(current.dayMiscs[dayKey] ?? []),
                   { id: `misc-${Date.now()}`, name, start, end, status: "pending" },
                 ],
+              },
+            }))
+          }
+          onAddDayItems={(items) =>
+            update((current) => ({
+              ...current,
+              dayMiscs: {
+                ...current.dayMiscs,
+                [dayKey]: appendDayMiscs(current.dayMiscs[dayKey] ?? [], items),
               },
             }))
           }

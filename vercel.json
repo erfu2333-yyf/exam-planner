@@ -6,6 +6,9 @@
     },
     "api/import-plan.ts": {
       "maxDuration": 60
+    },
+    "api/import-day.ts": {
+      "maxDuration": 60
     }
   }
 }
