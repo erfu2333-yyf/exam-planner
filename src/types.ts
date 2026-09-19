@@ -8,11 +8,17 @@ export type Subject = {
   order: number;
 };
 
+export type BreakdownItem = {
+  id: string;
+  name: string;
+  done: boolean;
+};
+
 export type Task = {
   id: string;
   subjectId: string;
   name: string;
-  /** 日均计划用时（小时） */
+  /** 每天预算用时（小时），先占位子，不必估准 */
   dailyHours: number;
   /** 含当天，本地 yyyy-mm-dd */
   startDate: string;
@@ -27,6 +33,16 @@ export type Task = {
    * 缺省或空表示日期范围内每天都做。
    */
   weekdays?: number[];
+  /** 推进单位：章 / 篇 / 题 / 课 … */
+  unit?: string;
+  /** 还没拆章节时的大概数量 */
+  targetAmount?: number;
+  /** 没有拆解时的已完成量；有拆解时以勾选为准 */
+  doneAmount?: number;
+  /** 章节或结构拆解，有则优先用来算进度 */
+  breakdown?: BreakdownItem[];
+  /** 明确这项不用拆章节，开始前一周也不提醒 */
+  skipBreakdown?: boolean;
 };
 
 export type TaskStatus = "pending" | "done" | "unfinished";
@@ -38,6 +54,8 @@ export type DayMisc = {
   start: number;
   end: number;
   status: TaskStatus;
+  /** 当天这块的具体内容，和科目任务色块同一栏 */
+  note?: string;
   /** 缺省按灰处理，兼容旧数据；新加的事项会分配调色板颜色 */
   colorId?: string;
 };
@@ -48,6 +66,10 @@ export type DayEntry = {
   end: number;
   note: string;
   status: TaskStatus;
+  /** 当天实际用时，由计时器写入，不默认等于预算 */
+  actualHours?: number;
+  /** 当天推进量，单位跟任务上的 unit 一致 */
+  doneDelta?: number;
 };
 
 /** taskId -> 当天安排 */
@@ -74,4 +96,6 @@ export type PlannerData = {
   examDate: string;
   /** 每天可用总时长，超过就算超负荷 */
   capacity: number;
+  /** taskId -> 拆解提醒推迟到哪一天之后再弹 */
+  breakdownSnooze?: Record<string, string>;
 };

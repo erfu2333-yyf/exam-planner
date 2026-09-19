@@ -172,6 +172,9 @@ export function GanttBar({
   weekTo,
   scale = "week",
   selected,
+  progress,
+  risk,
+  caption,
   onSelect,
   onDragStart,
   onDragMove,
@@ -182,6 +185,9 @@ export function GanttBar({
   weekTo: number;
   scale?: TimelineScale;
   selected: boolean;
+  progress?: number;
+  risk?: "ok" | "tight" | "late" | null;
+  caption?: string;
   onSelect: () => void;
   onDragStart: () => void;
   onDragMove: (startDate: string, endDate: string) => void;
@@ -265,7 +271,7 @@ export function GanttBar({
         onPointerDown={begin("move")}
         onPointerMove={move}
         onPointerUp={end}
-        title={`${task.name} ${task.startDate} → ${task.endDate}（拖动整条移动，拖两端改起止）`}
+        title={`${task.name} ${task.startDate} → ${task.endDate}${caption ? ` · ${caption}` : ""}（拖动整条移动，拖两端改起止）`}
         style={{
           position: "absolute",
           left: `${left}%`,
@@ -274,13 +280,31 @@ export function GanttBar({
           height: 20,
           borderRadius: 6,
           background: gradientOf(task.colorId),
-          outline: selected ? "2px solid var(--accent)" : "none",
+          outline: selected
+            ? "2px solid var(--accent)"
+            : risk === "late"
+              ? "2px solid var(--danger)"
+              : "none",
           outlineOffset: 1,
           cursor: "grab",
           touchAction: "none",
           zIndex: 3,
+          overflow: "hidden",
         }}
       >
+        {progress != null && progress > 0 ? (
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: `${Math.min(100, progress * 100)}%`,
+              background: "rgba(255,255,255,0.38)",
+              pointerEvents: "none",
+            }}
+          />
+        ) : null}
         <div
           onPointerDown={begin("start")}
           onPointerMove={move}

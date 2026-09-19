@@ -51,6 +51,11 @@ export type PlanSnapshot = {
     endDate: string;
     method: string;
     weekdays?: number[];
+    unit?: string;
+    targetAmount?: number;
+    doneAmount?: number;
+    breakdownCount?: number;
+    breakdownDone?: number;
   }>;
   todayTasks: Array<{
     taskId: string;
@@ -94,6 +99,11 @@ export function buildPlanSnapshot(data: PlannerData): PlanSnapshot {
       endDate: task.endDate,
       method: task.method,
       weekdays: task.weekdays,
+      unit: task.unit,
+      targetAmount: task.targetAmount,
+      doneAmount: task.doneAmount,
+      breakdownCount: task.breakdown?.length,
+      breakdownDone: task.breakdown?.filter((item) => item.done).length,
     })),
     todayTasks: Object.entries(todayPlan).map(([taskId, entry]) => ({
       taskId,

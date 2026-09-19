@@ -2,8 +2,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getCloudPlan, putCloudPlan } from "./cloud";
 import { INITIAL_DATA } from "./data";
 import { DEFAULT_EXAM_DATE } from "./dateUtils";
+import { normalizeBreakdown, SUGGESTED_UNITS } from "./progress";
 import { assignTaskOrder, normalizeWeekdays } from "./schedule";
-import type { DayMisc, PlannerData } from "./types";
+import type { DayEntry, DayMisc, DayPlan, PlannerData, Task } from "./types";
 import { dataKey } from "./workspace";
 
 /**
@@ -21,13 +22,8 @@ export function parsePlanner(raw: string | null | unknown): PlannerData {
     const parsed = (typeof raw === "string" ? JSON.parse(raw) : raw) as Partial<PlannerData>;
     return {
       subjects: parsed.subjects ?? INITIAL_DATA.subjects,
-      tasks: assignTaskOrder(
-        (parsed.tasks ?? INITIAL_DATA.tasks).map((task) => {
-          const weekdays = normalizeWeekdays(task.weekdays);
-          return weekdays ? { ...task, weekdays } : { ...task, weekdays: undefined };
-        }),
-      ),
-      dayPlans: parsed.dayPlans ?? {},
+      tasks: assignTaskOrder((parsed.tasks ?? INITIAL_DATA.tasks).map(normalizeTask)),
+      dayPlans: normalizeDayPlans(parsed.dayPlans),
       plannedHours: parsed.plannedHours ?? {},
       weekTexts: parsed.weekTexts ?? {},
       dayHours: parsed.dayHours ?? {},
@@ -36,10 +32,56 @@ export function parsePlanner(raw: string | null | unknown): PlannerData {
       eventName: parsed.eventName?.trim() || "考研",
       examDate: parsed.examDate ?? DEFAULT_EXAM_DATE,
       capacity: parsed.capacity ?? INITIAL_DATA.capacity,
+      breakdownSnooze: parsed.breakdownSnooze ?? {},
     };
   } catch {
     return INITIAL_DATA;
   }
+}
+
+function optionalAmount(value: unknown): number | undefined {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? amount : undefined;
+}
+
+function normalizeTask(task: Task): Task {
+  const weekdays = normalizeWeekdays(task.weekdays);
+  const breakdown = normalizeBreakdown(task.breakdown);
+  const unit = String(task.unit ?? "").trim() || SUGGESTED_UNITS[task.id] || "";
+  const next: Task = {
+    ...task,
+    unit: unit || undefined,
+    targetAmount: optionalAmount(task.targetAmount),
+    doneAmount: optionalAmount(task.doneAmount),
+    breakdown: breakdown.length > 0 ? breakdown : undefined,
+    skipBreakdown: task.skipBreakdown ? true : undefined,
+  };
+  if (weekdays) next.weekdays = weekdays;
+  else delete next.weekdays;
+  return next;
+}
+
+function normalizeDayPlans(raw: PlannerData["dayPlans"] | undefined): PlannerData["dayPlans"] {
+  if (!raw) return {};
+  const result: PlannerData["dayPlans"] = {};
+  for (const [dateKey, plan] of Object.entries(raw)) {
+    const next: DayPlan = {};
+    for (const [taskId, entry] of Object.entries(plan)) {
+      next[taskId] = normalizeDayEntry(entry);
+    }
+    if (Object.keys(next).length > 0) result[dateKey] = next;
+  }
+  return result;
+}
+
+function normalizeDayEntry(entry: DayEntry): DayEntry {
+  const actual = Number(entry.actualHours);
+  const delta = Number(entry.doneDelta);
+  return {
+    ...entry,
+    actualHours: Number.isFinite(actual) && actual > 0 ? actual : undefined,
+    doneDelta: Number.isFinite(delta) && delta > 0 ? delta : undefined,
+  };
 }
 
 function normalizeMiscs(raw: PlannerData["dayMiscs"] | undefined): Record<string, DayMisc[]> {
@@ -52,7 +94,12 @@ function normalizeMiscs(raw: PlannerData["dayMiscs"] | undefined): Record<string
       if (!name || leftover.has(name)) return false;
       return typeof item.start === "number" && typeof item.end === "number";
     });
-    if (kept.length > 0) result[dateKey] = kept;
+    if (kept.length > 0) {
+      result[dateKey] = kept.map((item) => ({
+        ...item,
+        note: typeof item.note === "string" ? item.note : "",
+      }));
+    }
   }
   return result;
 }

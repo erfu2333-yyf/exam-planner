@@ -395,6 +395,7 @@ export function appendDayMiscs(
       start: placed.start,
       end: placed.end,
       status: "pending",
+      note: "",
       colorId: item.colorId,
     });
   });

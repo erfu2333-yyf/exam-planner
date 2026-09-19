@@ -21,6 +21,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-12-18",
     method: "新词、昨日、三日前循环复习。",
     colorId: "pink",
+    unit: "词",
   },
   {
     id: "sentence",
@@ -31,6 +32,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-11-13",
     method: "手写拆主干，翻译后对照修正。",
     colorId: "rose",
+    unit: "句",
   },
   {
     id: "en-course",
@@ -41,6 +43,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-12-04",
     method: "阅读、新题型、完形、翻译、作文分阶段推进。",
     colorId: "magenta",
+    unit: "课",
   },
   {
     id: "en-test",
@@ -51,6 +54,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-12-18",
     method: "精读优先，后期加入整套限时。",
     colorId: "fuchsia",
+    unit: "篇",
   },
   {
     id: "en-essay",
@@ -61,6 +65,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-12-18",
     method: "大小作文各一套自己的模板，默写检查。",
     colorId: "coral",
+    unit: "篇",
   },
   {
     id: "intro-note",
@@ -71,6 +76,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-10-23",
     method: "看原文、理逻辑、当场修订材料。",
     colorId: "amber",
+    unit: "章",
   },
   {
     id: "intro-recite",
@@ -81,6 +87,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-12-18",
     method: "框架、关键词、完整复述三轮推进。",
     colorId: "yellow",
+    unit: "章",
   },
   {
     id: "topic-note",
@@ -91,6 +98,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-10-23",
     method: "按五问整理长期政策领域。",
     colorId: "green",
+    unit: "章",
   },
   {
     id: "topic-recite",
@@ -101,6 +109,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-12-18",
     method: "按最小结构背，并对照真题口答。",
     colorId: "lime",
+    unit: "章",
   },
   {
     id: "method-focus",
@@ -111,6 +120,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-10-16",
     method: "抓特点、局限与适用问题。",
     colorId: "cyan",
+    unit: "节",
   },
   {
     id: "method-recite",
@@ -121,6 +131,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-12-18",
     method: "结合真题形成答题表达。",
     colorId: "teal",
+    unit: "章",
   },
   {
     id: "stat-course",
@@ -131,6 +142,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-11-20",
     method: "公式与适用条件同步整理。",
     colorId: "violet",
+    unit: "课",
   },
   {
     id: "stat-test",
@@ -141,6 +153,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-12-18",
     method: "先计算题，12月再集中选择题。",
     colorId: "purple",
+    unit: "题",
   },
   {
     id: "pol-video",
@@ -151,6 +164,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-10-30",
     method: "听课后合书复述框架。",
     colorId: "orange",
+    unit: "课",
   },
   {
     id: "pol-test",
@@ -161,6 +175,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-12-04",
     method: "选择题当日清，按错因归类。",
     colorId: "red",
+    unit: "题",
   },
   {
     id: "xiao4",
@@ -171,6 +186,7 @@ export const DEFAULT_TASKS: Task[] = [
     endDate: "2026-12-18",
     method: "先背题目框架，再补关键词。",
     colorId: "coral",
+    unit: "题",
   },
 ];
 

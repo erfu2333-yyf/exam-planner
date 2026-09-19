@@ -4,6 +4,7 @@ import { AiPanel } from "./components/AiPanel";
 import { DayView } from "./components/DayView";
 import {
   ConfirmDialog,
+  emptyVolume,
   SubjectEditor,
   TaskEditor,
   type SubjectDraft,
@@ -31,6 +32,13 @@ import {
 } from "./dateUtils";
 import { planToMarkdown } from "./exportPlan";
 import { applyImport } from "./planImport";
+import {
+  applyDoneDeltaToBreakdown,
+  snapActualHours,
+  suggestedUnitForName,
+  tasksNeedingBreakdown,
+} from "./progress";
+import { useTaskTimer } from "./timer";
 import {
   appendDayMiscs,
   applyDailyHoursToDayPlans,
@@ -88,6 +96,8 @@ export default function App() {
   const [shiftWarning, setShiftWarning] = useState<Task[] | null>(null);
   const [carryoverDate, setCarryoverDate] = useState<string | null>(null);
   const [carryoverDismissed, setCarryoverDismissed] = useState(false);
+  const [breakdownOpen, setBreakdownOpen] = useState(true);
+  const timerApi = useTaskTimer(workspace.profile?.id ?? null);
   const [passA, setPassA] = useState("");
   const [passB, setPassB] = useState("");
   const [passMsg, setPassMsg] = useState("");
@@ -129,6 +139,27 @@ export default function App() {
   }, [undo]);
 
   useEffect(() => {
+    const running = timerApi.timer;
+    if (!running?.running) return;
+    const flush = () => {
+      const live = timerApi.snapshot();
+      if (!live) return;
+      writeActualHours(live.dateKey, live.taskId, snapActualHours(live.elapsedMs / 3600000));
+    };
+    const id = window.setInterval(flush, 15_000);
+    const onHide = () => {
+      if (document.hidden) flush();
+    };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("pagehide", flush);
+    };
+  }, [timerApi.timer?.running, timerApi.timer?.taskId, timerApi.timer?.dateKey]);
+
+  useEffect(() => {
     if (carryoverDismissed) return;
     const yesterday = addDays(today, -1);
     if (dayIndex(yesterday, span.origin) < 0) return;
@@ -163,14 +194,46 @@ export default function App() {
     (undoable ? commit : update)(apply);
   };
 
+  const writeActualHours = (dateKey: string, taskId: string, hours: number) => {
+    update((current) => {
+      const plan = dayPlanOf(current, dateKey);
+      const entry = plan[taskId];
+      if (!entry) return current;
+      const actualHours = snapActualHours(hours);
+      if ((entry.actualHours ?? 0) === actualHours) return current;
+      return {
+        ...current,
+        dayPlans: {
+          ...current.dayPlans,
+          [dateKey]: { ...plan, [taskId]: { ...entry, actualHours } },
+        },
+      };
+    });
+  };
+
   const patchEntry = (dateKey: string, taskId: string, patch: Partial<DayEntry>) => {
     update((current) => {
       const plan = dayPlanOf(current, dateKey);
       const entry = plan[taskId];
       if (!entry) return current;
       const next = { ...entry, ...patch };
+      if (patch.actualHours != null) next.actualHours = snapActualHours(patch.actualHours);
+      if (patch.doneDelta != null) {
+        const delta = Number(patch.doneDelta);
+        if (!Number.isFinite(delta) || delta <= 0) delete next.doneDelta;
+        else next.doneDelta = delta;
+      }
+      const prevDelta = entry.doneDelta ?? 0;
+      const nextDelta = next.doneDelta ?? 0;
+      const tasks =
+        patch.doneDelta != null
+          ? current.tasks.map((task) =>
+              task.id === taskId ? applyDoneDeltaToBreakdown(task, nextDelta, prevDelta) : task,
+            )
+          : current.tasks;
       return {
         ...current,
+        tasks,
         dayPlans: {
           ...current.dayPlans,
           [dateKey]: { ...plan, [taskId]: next },
@@ -230,9 +293,22 @@ export default function App() {
         colorId: draft.colorId,
       };
       const stampWeekdays = (task: Task): Task => {
-        const next = { ...task, ...fields };
+        const next: Task = { ...task, ...fields };
         if (weekdays) next.weekdays = weekdays;
         else delete next.weekdays;
+        const unit = draft.unit.trim();
+        if (unit) next.unit = unit;
+        else delete next.unit;
+        const target = Number(draft.targetAmount);
+        if (Number.isFinite(target) && target > 0) next.targetAmount = target;
+        else delete next.targetAmount;
+        const done = Number(draft.doneAmount);
+        if (Number.isFinite(done) && done > 0) next.doneAmount = done;
+        else delete next.doneAmount;
+        if (draft.breakdown.length > 0) next.breakdown = draft.breakdown.filter((item) => item.name.trim());
+        else delete next.breakdown;
+        if (draft.skipBreakdown) next.skipBreakdown = true;
+        else delete next.skipBreakdown;
         return next;
       };
       if (draft.id) {
@@ -303,6 +379,7 @@ export default function App() {
       endDate: lastDay,
       colorId: subject?.colorId ?? "blue",
       weekdays: [0, 1, 2, 3, 4, 5, 6],
+      ...emptyVolume(),
     });
   };
 
@@ -316,6 +393,11 @@ export default function App() {
       endDate: task.endDate,
       colorId: task.colorId,
       weekdays: task.weekdays ?? [0, 1, 2, 3, 4, 5, 6],
+      unit: task.unit ?? suggestedUnitForName(task.name),
+      targetAmount: task.targetAmount != null ? String(task.targetAmount) : "",
+      doneAmount: task.doneAmount != null ? String(task.doneAmount) : "",
+      breakdown: task.breakdown ? task.breakdown.map((item) => ({ ...item })) : [],
+      skipBreakdown: Boolean(task.skipBreakdown),
     });
   };
 
@@ -610,6 +692,21 @@ export default function App() {
           data={data}
           dateKey={dayKey}
           selectedId={selectedId}
+          timer={timerApi.timer}
+          now={timerApi.now}
+          onToggleTimer={(taskId) => {
+            const existing = data.dayPlans[dayKey]?.[taskId]?.actualHours ?? 0;
+            const paused = timerApi.toggle(taskId, dayKey, existing);
+            if (paused) {
+              writeActualHours(
+                paused.dateKey,
+                paused.taskId,
+                snapActualHours(paused.elapsedMs / 3600000),
+              );
+            }
+          }}
+          onSyncTimerHours={(taskId, hours) => timerApi.syncHours(taskId, dayKey, hours)}
+          timerHoursOf={(taskId, fallback) => timerApi.hoursOf(taskId, dayKey, fallback)}
           onDateShift={(days) => {
             const next = addDays(dayKey, days);
             const index = dayIndex(next, span.origin);
@@ -636,7 +733,7 @@ export default function App() {
                   ...current.dayMiscs,
                   [dayKey]: [
                     ...(current.dayMiscs[dayKey] ?? []),
-                    { id: `misc-${Date.now()}`, name, start, end, status: "pending", colorId },
+                    { id: `misc-${Date.now()}`, name, start, end, status: "pending", note: "", colorId },
                   ],
                 },
               };
@@ -682,10 +779,26 @@ export default function App() {
           onRegenerate={() => {
             const error = dayPlanCapacityError(data, dayKey);
             if (error) return error;
-            commit((current) => ({
-              ...current,
-              dayPlans: { ...current.dayPlans, [dayKey]: generateDayPlan(current, dayKey) },
-            }));
+            commit((current) => {
+              const generated = generateDayPlan(current, dayKey);
+              const stored = current.dayPlans[dayKey] ?? {};
+              const merged = { ...generated };
+              for (const [taskId, entry] of Object.entries(generated)) {
+                const prev = stored[taskId];
+                if (!prev) continue;
+                merged[taskId] = {
+                  ...entry,
+                  note: prev.note || entry.note,
+                  status: prev.status,
+                  actualHours: prev.actualHours,
+                  doneDelta: prev.doneDelta,
+                };
+              }
+              return {
+                ...current,
+                dayPlans: { ...current.dayPlans, [dayKey]: merged },
+              };
+            });
             return null;
           }}
           onDragStart={() => commit((current) => current)}
@@ -729,6 +842,7 @@ export default function App() {
           subjects={data.subjects}
           origin={span.origin}
           examDate={span.examDate}
+          data={data}
           onClose={() => setTaskDraft(null)}
           onSave={saveTask}
           onDelete={(taskId) => {
@@ -814,6 +928,88 @@ export default function App() {
               <Button onClick={() => setShiftWarning(null)}>取消</Button>
               <Button variant="danger" onClick={() => applyShift(1)}>
                 仍然后移
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      ) : null}
+
+      {breakdownOpen && !carryoverDate && tasksNeedingBreakdown(data, calendarKey()).length > 0 ? (
+        <Modal
+          title="这些任务该拆章节了"
+          onClose={() => setBreakdownOpen(false)}
+          width={520}
+        >
+          <div className="stack" style={{ gap: 12 }}>
+            <span className="muted small">
+              距离开始不到一周，或已经开始，但还只有大概数量。拆成章/篇/题之后，总览才能判断赶不赶得上。暂时拆不了就明天再说。
+            </span>
+            <div className="stack" style={{ gap: 6 }}>
+              {tasksNeedingBreakdown(data, calendarKey()).map((task) => (
+                <div
+                  key={task.id}
+                  className="row"
+                  style={{
+                    justifyContent: "space-between",
+                    border: "1px solid var(--stroke)",
+                    borderRadius: 8,
+                    padding: "7px 10px",
+                    gap: 8,
+                  }}
+                >
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    {subjectOf(data, task.subjectId)?.name} · {task.name}
+                    <span className="small muted">
+                      {" "}
+                      · {task.startDate} 开始 · 大概 {task.targetAmount}
+                      {task.unit ?? suggestedUnitForName(task.name)}
+                    </span>
+                  </span>
+                  <div className="row" style={{ gap: 6 }}>
+                    <Button
+                      small
+                      onClick={() => {
+                        openEditTask(task);
+                        setBreakdownOpen(false);
+                      }}
+                    >
+                      去拆解
+                    </Button>
+                    <Button
+                      small
+                      onClick={() =>
+                        update((current) => ({
+                          ...current,
+                          tasks: current.tasks.map((item) =>
+                            item.id === task.id ? { ...item, skipBreakdown: true } : item,
+                          ),
+                        }))
+                      }
+                    >
+                      不用拆
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
+              <Button
+                onClick={() => {
+                  const todayKeyValue = calendarKey();
+                  update((current) => {
+                    const snooze = { ...(current.breakdownSnooze ?? {}) };
+                    for (const task of tasksNeedingBreakdown(current, todayKeyValue)) {
+                      snooze[task.id] = todayKeyValue;
+                    }
+                    return { ...current, breakdownSnooze: snooze };
+                  });
+                  setBreakdownOpen(false);
+                }}
+              >
+                明天再说
+              </Button>
+              <Button variant="primary" onClick={() => setBreakdownOpen(false)}>
+                知道了
               </Button>
             </div>
           </div>

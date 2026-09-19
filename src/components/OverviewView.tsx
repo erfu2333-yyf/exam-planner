@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
+  calendarKey,
   columnTrack,
   formatMD,
   monthBands,
@@ -11,13 +12,14 @@ import {
   weekEndKey,
   weekStartKey,
 } from "../dateUtils";
+import { progressCaption, taskProgress, taskRisk } from "../progress";
 import { averageHoursInRange, overlapsRange, sortSubjectTasks, subjectsOnScreen } from "../schedule";
 import { colorOf } from "../theme";
 import type { PlannerData, Subject, Task } from "../types";
 import { GanttBar, PhaseLines, TodayCaption, TodayLine } from "./GanttBar";
 import { ImportPanel } from "./ImportPanel";
 import { LoadChart } from "./LoadChart";
-import { Button, NumberField, Pill } from "./ui";
+import { Button, Callout, NumberField, Pill } from "./ui";
 import type { ImportSubject } from "../planImport";
 import { DragHandle } from "./DragHandle";
 
@@ -121,6 +123,9 @@ export function OverviewView({
 
   return (
     <div className="stack" style={{ gap: 16 }}>
+      <Callout>
+        新能力已经接上：双击左侧任务名可填大概数量、拆章节；点顶上第三个标签进当天，右侧清单有开始/暂停计时。没填数量时甘特条看起来会和以前差不多。
+      </Callout>
       <section className="panel">
         <div className="row" style={{ justifyContent: "space-between", marginBottom: 6 }}>
           <strong style={{ fontSize: 16 }}>每周平均每天任务量</strong>
@@ -254,6 +259,9 @@ export function OverviewView({
               />
               {subjectTasks.map((task) => {
                 const methodOpen = methodId === task.id;
+                const progress = taskProgress(data, task);
+                const risk = taskRisk(data, task, calendarKey());
+                const caption = progressCaption(data, task);
                 return (
                   <div
                     key={task.id}
@@ -328,19 +336,37 @@ export function OverviewView({
                       className="planner-stick-hours"
                       style={{
                         padding: "0 5px",
-                        minHeight: 42,
+                        minHeight: 52,
                         display: "flex",
                         alignItems: "center",
                         justifyContent: "center",
                       }}
                     >
-                      <NumberField
-                        value={task.dailyHours}
-                        width={58}
-                        onChange={(value) =>
-                          onTaskChange(task.id, { dailyHours: Number(value) || 0 }, false)
-                        }
-                      />
+                      <div className="stack" style={{ gap: 2, alignItems: "center" }}>
+                        <NumberField
+                          value={task.dailyHours}
+                          width={58}
+                          onChange={(value) =>
+                            onTaskChange(task.id, { dailyHours: Number(value) || 0 }, false)
+                          }
+                        />
+                        {caption ? (
+                          <div
+                            className="small"
+                            style={{
+                              textAlign: "center",
+                              lineHeight: 1.2,
+                              color: risk === "late" ? "var(--danger)" : "var(--text-3)",
+                            }}
+                          >
+                            {progress.target != null
+                              ? `${progress.done}/${progress.target}${progress.unit}`
+                              : progress.done > 0
+                                ? `${progress.done}${progress.unit}`
+                                : ""}
+                          </div>
+                        ) : null}
+                      </div>
                     </div>
                     <div
                       style={{
@@ -356,6 +382,13 @@ export function OverviewView({
                         weekTo={weekTo}
                         scale={scale}
                         selected={task.id === selectedId}
+                        progress={
+                          progress.target != null && progress.target > 0
+                            ? progress.done / progress.target
+                            : undefined
+                        }
+                        risk={risk}
+                        caption={caption}
                         onSelect={() => onSelect(task.id)}
                         onDragStart={onDragStart}
                         onDragMove={(startDate, endDate) =>
@@ -400,7 +433,7 @@ export function OverviewView({
       </div>
 
       <div className="muted small">
-        左侧六点可上下拖动换二级任务顺序；双击名称改起止和颜色；甘特条可整条拖动，拖两端改起止日期。
+        左侧六点可上下拖动换二级任务顺序；双击名称改起止、大概数量和章节拆解。甘特条可整条拖动，拖两端改起止日期。有进度才会在条上浅色填充，没填数量不报警。
       </div>
 
       <ImportPanel data={data} span={span} onImport={onImport} />

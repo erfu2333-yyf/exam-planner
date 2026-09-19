@@ -12,7 +12,8 @@ import {
   weekStartKey,
   weekdayShort,
 } from "../dateUtils";
-import { coversDay, hoursOnDay, overlapsRange, plannedHoursOf, scheduledHoursOf, sortSubjectTasks, subjectsOnScreen, weekTaskAverage } from "../schedule";
+import { buildWeekReport } from "../progress";
+import { coversDay, hoursOnDay, overlapsRange, plannedHoursOf, scheduledHoursOf, sortSubjectTasks, subjectsOnScreen, subjectOf, weekTaskAverage } from "../schedule";
 import { colorOf, tint } from "../theme";
 import type { PlannerData, Subject, Task } from "../types";
 import { Button, Callout, NumberField, Pill } from "./ui";
@@ -440,38 +441,101 @@ export function WeekView({
         </div>
       </div>
 
+      <WeekReportBlock data={data} days={focusDays} open={reportOpen} onToggle={() => setReportOpen((value) => !value)} />
+    </div>
+  );
+}
+
+function WeekReportBlock({
+  data,
+  days,
+  open,
+  onToggle,
+}: {
+  data: PlannerData;
+  days: string[];
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const report = buildWeekReport(data, days, calendarKey());
+  const rate = report.slotCount > 0 ? Math.round((report.doneCount / report.slotCount) * 100) : 0;
+  return (
+    <>
       <div className="row" style={{ justifyContent: "center", gap: 10, flexWrap: "wrap" }}>
-        <span className="small muted">正式版每周五 23:59 自动生成；当前不记录数据</span>
-        <Button small onClick={() => setReportOpen((value) => !value)}>
-          {reportOpen ? "收起框架" : "查看周报框架"}
+        <span className="small muted">
+          {report.hasLogs
+            ? `本周预算 ${report.plannedHours.toFixed(1)}h · 计时 ${report.actualHours.toFixed(1)}h`
+            : "有计时或推进之后，这里会对照预算和实际"}
+        </span>
+        <Button small onClick={onToggle}>
+          {open ? "收起周报" : "查看周报"}
         </Button>
       </div>
-      {reportOpen ? (
+      {open ? (
         <div className="panel" style={{ background: "var(--surface-2)" }}>
           <div className="row" style={{ justifyContent: "space-between", marginBottom: 12 }}>
-            <strong>每周自动周报 · 空框架</strong>
-            <span className="small muted">暂不记录</span>
+            <strong>本周对照</strong>
+            <span className="small muted">{report.hasLogs ? "读当天计时和推进" : "还没有记录"}</span>
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
             <Callout>
               <div style={{ fontWeight: 600, marginBottom: 4 }}>完成情况</div>
-              <div className="small muted">完成率、完成时长、各科推进情况。</div>
+              <div className="small muted">
+                勾完 {report.doneCount}/{report.slotCount}（{rate}%）
+                <br />
+                预算 {report.plannedHours.toFixed(1)}h · 实际 {report.actualHours.toFixed(1)}h
+                {report.outputs.length > 0 ? (
+                  <>
+                    <br />
+                    {report.outputs
+                      .map(
+                        (item) =>
+                          `${subjectOf(data, item.task.subjectId)?.name} ${item.task.name} +${item.amount}${item.unit}`,
+                      )
+                      .join("；")}
+                  </>
+                ) : (
+                  <>
+                    <br />
+                    还没有推进量。刷题记篇，背诵记章。
+                  </>
+                )}
+              </div>
             </Callout>
             <Callout tone="warning">
               <div style={{ fontWeight: 600, marginBottom: 4 }}>主要阻塞</div>
-              <div className="small muted">未完成原因、连续延期任务、容量冲突。</div>
+              <div className="small muted">
+                {report.unfinished.length === 0 && report.risks.length === 0
+                  ? "这周没有连续落下或预报赶不上的任务。"
+                  : (
+                    <>
+                      {report.unfinished.map((item) => (
+                        <div key={item.task.id}>
+                          {subjectOf(data, item.task.subjectId)?.name} · {item.task.name} 有 {item.days} 天没勾完
+                        </div>
+                      ))}
+                      {report.risks.map((item) => (
+                        <div key={item.task.id}>
+                          {subjectOf(data, item.task.subjectId)?.name} · {item.task.name}
+                          {item.risk === "late" ? " 按近速可能赶不上" : " 窗口偏紧"}
+                        </div>
+                      ))}
+                    </>
+                  )}
+              </div>
             </Callout>
             <Callout>
-              <div style={{ fontWeight: 600, marginBottom: 4 }}>下周调整</div>
-              <div className="small muted">负荷调整、优先级变化和具体排期建议。</div>
+              <div style={{ fontWeight: 600, marginBottom: 4 }}>下周怎么调</div>
+              <div className="small muted">
+                {report.suggestions.length > 0
+                  ? report.suggestions.map((line) => <div key={line}>{line}</div>)
+                  : "先记几天实际用时，再决定改不改日均。"}
+              </div>
             </Callout>
-          </div>
-          <div className="small muted" style={{ marginTop: 12 }}>
-            当前不读取完成记录和当日总结，也不保留周报上下文。
           </div>
         </div>
       ) : null}
-    </div>
+    </>
   );
 }
 

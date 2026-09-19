@@ -8,7 +8,10 @@ import {
   snapHour,
 } from "../dateUtils";
 import { parseMiscName, type DayImportItem } from "../dayImport";
+import { dayActualHours, taskProgress, taskUnit } from "../progress";
 import { dayPlanCapacityError, dayPlanOf, entryHours, placeMiscAtBottom, plannedHoursOf, subjectOf, tasksOfDay } from "../schedule";
+import type { ActiveTimer } from "../timer";
+import { formatElapsed, timerElapsedMs } from "../timer";
 import { GRAY_ID, gradientOf, tint } from "../theme";
 import type { DayEntry, DayMisc, PlannerData, TaskStatus } from "../types";
 import { DayImportPanel } from "./DayImportPanel";
@@ -24,6 +27,11 @@ export function DayView({
   data,
   dateKey,
   selectedId,
+  timer,
+  now,
+  onToggleTimer,
+  onSyncTimerHours,
+  timerHoursOf,
   onDateShift,
   onSelect,
   onEntryChange,
@@ -41,6 +49,11 @@ export function DayView({
   data: PlannerData;
   dateKey: string;
   selectedId: string | null;
+  timer: ActiveTimer | null;
+  now: number;
+  onToggleTimer: (taskId: string) => void;
+  onSyncTimerHours: (taskId: string, hours: number) => void;
+  timerHoursOf: (taskId: string, fallback: number) => number;
   onDateShift: (days: number) => void;
   onSelect: (taskId: string) => void;
   onEntryChange: (taskId: string, patch: Partial<DayEntry>) => void;
@@ -73,6 +86,7 @@ export function DayView({
     tasks.reduce((sum, task) => sum + (plan[task.id] ? entryHours(plan[task.id]) : 0), 0) +
     miscs.reduce((sum, item) => sum + Math.max(0, item.end - item.start), 0);
   const planned = plannedHoursOf(data, dateKey);
+  const actualTotal = dayActualHours(data, dateKey);
   const doneCount =
     tasks.filter((task) => plan[task.id]?.status === "done").length +
     miscs.filter((item) => item.status === "done").length;
@@ -359,6 +373,7 @@ export function DayView({
                       background: tint(colorId, 0.42),
                       borderLeft: `4px solid ${gradientOf(colorId)}`,
                       overflow: "hidden",
+                      opacity: item.status === "done" ? 0.62 : 1,
                       zIndex: 4,
                     }}
                   >
@@ -379,7 +394,9 @@ export function DayView({
                         cursor: "grab",
                         touchAction: "none",
                         display: "flex",
-                        alignItems: "center",
+                        flexDirection: compact ? "row" : "column",
+                        alignItems: compact ? "center" : "stretch",
+                        gap: compact ? 6 : 0,
                       }}
                     >
                       <div
@@ -388,24 +405,52 @@ export function DayView({
                           fontWeight: 700,
                           display: "flex",
                           justifyContent: "space-between",
+                          alignItems: "center",
                           gap: 6,
-                          width: "100%",
+                          flexShrink: compact ? 0 : undefined,
+                          maxWidth: compact ? "42%" : undefined,
                           minWidth: 0,
                         }}
                       >
-                        <span
+                        <input
+                          className="field-plain small"
+                          value={item.name}
+                          placeholder="事项名"
+                          onPointerDown={(event) => event.stopPropagation()}
+                          onChange={(event) => onPatchMisc(item.id, { name: event.target.value })}
                           style={{
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
+                            flex: 1,
+                            minWidth: 0,
+                            fontWeight: 700,
+                            textDecoration: item.status === "done" ? "line-through" : "none",
                           }}
-                        >
-                          {item.name}
-                        </span>
-                        <span className="muted-3" style={{ flexShrink: 0 }}>
+                        />
+                        {compact ? null : (
+                          <span className="muted-3" style={{ flexShrink: 0 }}>
+                            {formatHour(item.start)}–{formatHour(item.end)}
+                          </span>
+                        )}
+                      </div>
+                      <textarea
+                        className="field-plain small"
+                        rows={1}
+                        value={item.note ?? ""}
+                        placeholder={compact ? "内容" : "填写今天的具体内容"}
+                        onPointerDown={(event) => event.stopPropagation()}
+                        onChange={(event) => onPatchMisc(item.id, { note: event.target.value })}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          minHeight: compact ? 16 : 22,
+                          height: compact ? 16 : undefined,
+                          padding: compact ? "0 4px" : undefined,
+                        }}
+                      />
+                      {compact ? (
+                        <span className="small muted-3" style={{ flexShrink: 0 }}>
                           {formatHour(item.start)}–{formatHour(item.end)}
                         </span>
-                      </div>
+                      ) : null}
                     </div>
                     <div
                       onPointerDown={(event) => {
@@ -444,8 +489,13 @@ export function DayView({
                 />
               </label>
               <div style={{ textAlign: "right" }}>
-                <div className="small muted">已排（自动）</div>
-                <div style={{ fontSize: 22, fontWeight: 700 }}>{arranged.toFixed(1)}h</div>
+                <div className="small muted">已排 / 实际</div>
+                <div style={{ fontSize: 22, fontWeight: 700 }}>
+                  {arranged.toFixed(1)}h
+                  <span className="small" style={{ fontWeight: 600, marginLeft: 6 }}>
+                    / {actualTotal.toFixed(1)}h
+                  </span>
+                </div>
               </div>
             </div>
             <div
@@ -458,6 +508,9 @@ export function DayView({
               {arranged > planned
                 ? `超出计划 ${(arranged - planned).toFixed(1)}h`
                 : `还可安排 ${(planned - arranged).toFixed(1)}h`}
+              {timer?.running && timer.dateKey === dateKey
+                ? ` · 正在计时 ${formatElapsed(timerElapsedMs(timer, now))}`
+                : ""}
             </div>
           </div>
 
@@ -473,49 +526,94 @@ export function DayView({
                 const entry = plan[task.id];
                 if (!entry) return null;
                 const subject = subjectOf(data, task.subjectId);
+                const running = timer?.running && timer.taskId === task.id && timer.dateKey === dateKey;
+                const actual = timerHoursOf(task.id, entry.actualHours ?? 0);
+                const progress = taskProgress(data, task);
+                const unit = taskUnit(task);
                 return (
                   <div
                     key={task.id}
-                    className="row"
                     onContextMenu={(event) => {
                       event.preventDefault();
                       setMenu({ taskId: task.id, x: event.clientX, y: event.clientY });
                     }}
                     style={{
-                      gap: 7,
-                      padding: "4px 6px",
+                      padding: "6px 6px",
                       borderRadius: 6,
-                      background: tint(task.colorId, 0.16),
+                      background: tint(task.colorId, running ? 0.28 : 0.16),
+                      outline: running ? "1px solid var(--accent)" : "none",
                       cursor: "context-menu",
                     }}
                   >
-                    <input
-                      type="checkbox"
-                      checked={entry.status === "done"}
-                      onChange={(event) =>
-                        onEntryChange(task.id, {
-                          status: (event.target.checked ? "done" : "pending") as TaskStatus,
-                        })
-                      }
-                      style={{ width: 16, height: 16, flexShrink: 0, cursor: "pointer" }}
-                    />
-                    <span
-                      className="small"
-                      style={{
-                        flex: 1,
-                        minWidth: 0,
-                        overflow: "hidden",
-                        textOverflow: "ellipsis",
-                        whiteSpace: "nowrap",
-                        textDecoration: entry.status === "done" ? "line-through" : "none",
-                        color: entry.status === "done" ? "var(--text-3)" : "var(--text)",
-                      }}
-                    >
-                      {subject?.name} · {task.name}
-                    </span>
-                    <span className="small muted-3" style={{ flexShrink: 0 }}>
-                      {entryHours(entry).toFixed(1)}h
-                    </span>
+                    <div className="row" style={{ gap: 7 }}>
+                      <input
+                        type="checkbox"
+                        checked={entry.status === "done"}
+                        onChange={(event) =>
+                          onEntryChange(task.id, {
+                            status: (event.target.checked ? "done" : "pending") as TaskStatus,
+                          })
+                        }
+                        style={{ width: 16, height: 16, flexShrink: 0, cursor: "pointer" }}
+                      />
+                      <span
+                        className="small"
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                          textDecoration: entry.status === "done" ? "line-through" : "none",
+                          color: entry.status === "done" ? "var(--text-3)" : "var(--text)",
+                        }}
+                      >
+                        {subject?.name} · {task.name}
+                      </span>
+                      <Button
+                        small
+                        variant={running ? "primary" : "default"}
+                        onClick={() => onToggleTimer(task.id)}
+                        title="同时只能开一条计时。换任务会先暂停当前这条。"
+                      >
+                        {running ? "暂停" : "开始"}
+                      </Button>
+                    </div>
+                    <div className="row" style={{ gap: 6, marginTop: 5, flexWrap: "wrap" }}>
+                      <span className="small muted">实际</span>
+                      <NumberField
+                        value={actual}
+                        width={52}
+                        step={0.1}
+                        title="计时写入，也可手改"
+                        onChange={(value) => {
+                          const hours = Number(value) || 0;
+                          onEntryChange(task.id, { actualHours: hours });
+                          onSyncTimerHours(task.id, hours);
+                        }}
+                      />
+                      <span className="small muted-3">
+                        {running && timer ? formatElapsed(timerElapsedMs(timer, now)) : `预算 ${entryHours(entry).toFixed(1)}h`}
+                      </span>
+                      {task.skipBreakdown && progress.source === "none" && progress.done <= 0 ? null : (
+                        <>
+                          <span className="small muted" style={{ marginLeft: 4 }}>
+                            推进
+                          </span>
+                          <NumberField
+                            value={entry.doneDelta ?? ""}
+                            width={46}
+                            step={1}
+                            min={0}
+                            title={`今天推进了多少${unit}`}
+                            onChange={(value) =>
+                              onEntryChange(task.id, { doneDelta: Number(value) || 0 })
+                            }
+                          />
+                          <span className="small muted-3">{unit}</span>
+                        </>
+                      )}
+                    </div>
                   </div>
                 );
               })}
@@ -545,20 +643,18 @@ export function DayView({
                     }
                     style={{ width: 16, height: 16, flexShrink: 0, cursor: "pointer" }}
                   />
-                  <span
-                    className="small"
+                  <input
+                    className="field-plain small"
+                    value={item.name}
+                    placeholder="事项名"
+                    onChange={(event) => onPatchMisc(item.id, { name: event.target.value })}
                     style={{
                       flex: 1,
                       minWidth: 0,
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                      whiteSpace: "nowrap",
                       textDecoration: item.status === "done" ? "line-through" : "none",
                       color: item.status === "done" ? "var(--text-3)" : "var(--text)",
                     }}
-                  >
-                    {item.name}
-                  </span>
+                  />
                   <span className="small muted-3" style={{ flexShrink: 0 }}>
                     {Math.max(0, item.end - item.start).toFixed(1)}h
                   </span>

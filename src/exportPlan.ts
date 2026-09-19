@@ -12,8 +12,15 @@ export function planToMarkdown(data: PlannerData, ownerName: string): string {
     .join("\n");
   const taskLines = snap.tasks
     .map(
-      (task) =>
-        `- ${task.subject} / ${task.name}：${task.dailyHours}h/天，${task.startDate}–${task.endDate}${task.method ? `。学法：${task.method}` : ""}`,
+      (task) => {
+        const volume =
+          task.breakdownCount != null
+            ? `，拆解 ${task.breakdownDone ?? 0}/${task.breakdownCount}`
+            : task.targetAmount != null
+              ? `，大概 ${task.doneAmount ?? 0}/${task.targetAmount}${task.unit ?? ""}`
+              : "";
+        return `- ${task.subject} / ${task.name}：预算 ${task.dailyHours}h/天，${task.startDate}–${task.endDate}${volume}${task.method ? `。学法：${task.method}` : ""}`;
+      },
     )
     .join("\n");
   const todayLines =

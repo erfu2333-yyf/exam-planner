@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
-import { WEEKDAY_CHIPS } from "../dateUtils";
-import type { Subject } from "../types";
+import { WEEKDAY_CHIPS, addDays, calendarKey } from "../dateUtils";
+import { parseBreakdownText, suggestedPace, suggestedUnitForName } from "../progress";
+import { coversDay } from "../schedule";
+import type { BreakdownItem, PlannerData, Subject } from "../types";
 import { Button, ColorPicker, Field, Modal, NumberField, Pill, TextField } from "./ui";
 
 export type TaskDraft = {
@@ -12,13 +14,32 @@ export type TaskDraft = {
   endDate: string;
   colorId: string;
   weekdays: number[];
+  unit: string;
+  targetAmount: string;
+  doneAmount: string;
+  breakdown: BreakdownItem[];
+  skipBreakdown: boolean;
 };
+
+export function emptyVolume(name = ""): Pick<
+  TaskDraft,
+  "unit" | "targetAmount" | "doneAmount" | "breakdown" | "skipBreakdown"
+> {
+  return {
+    unit: suggestedUnitForName(name),
+    targetAmount: "",
+    doneAmount: "",
+    breakdown: [],
+    skipBreakdown: false,
+  };
+}
 
 export function TaskEditor({
   draft,
   subjects,
   origin,
   examDate,
+  data,
   onClose,
   onSave,
   onDelete,
@@ -27,6 +48,7 @@ export function TaskEditor({
   subjects: Subject[];
   origin: string;
   examDate: string;
+  data?: PlannerData;
   onClose: () => void;
   onSave: (draft: TaskDraft) => void;
   onDelete: (taskId: string) => void;
@@ -96,13 +118,18 @@ export function TaskEditor({
           </div>
         )}
 
-        <Field label="日均用时（小时）">
+        <Field label="每天预算（小时）">
           <NumberField
             value={value.dailyHours}
             width={110}
             onChange={(dailyHours) => patch({ dailyHours })}
           />
+          <div className="small muted-3" style={{ marginTop: 6 }}>
+            只占当天位子，不必估准。真正花多久用当天的计时器量。
+          </div>
         </Field>
+
+        <VolumeFields value={value} data={data} onPatch={patch} />
 
         <Field label="每周哪几天">
           <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
@@ -164,6 +191,163 @@ export function TaskEditor({
         </div>
       </div>
     </Modal>
+  );
+}
+
+function VolumeFields({
+  value,
+  data,
+  onPatch,
+}: {
+  value: TaskDraft;
+  data?: PlannerData;
+  onPatch: (next: Partial<TaskDraft>) => void;
+}) {
+  const [paste, setPaste] = useState("");
+  const unit = value.unit.trim() || suggestedUnitForName(value.name);
+  const target = Number(value.targetAmount);
+  const previewTask = {
+    id: value.id ?? "draft",
+    subjectId: value.subjectId,
+    name: value.name,
+    dailyHours: Number(value.dailyHours) || 0,
+    startDate: value.startDate,
+    endDate: value.endDate,
+    method: "",
+    colorId: value.colorId,
+    weekdays: value.weekdays,
+    unit,
+    targetAmount: target > 0 ? target : undefined,
+    doneAmount: Number(value.doneAmount) || undefined,
+    breakdown: value.breakdown.length > 0 ? value.breakdown : undefined,
+    skipBreakdown: value.skipBreakdown,
+  };
+  const covered =
+    value.startDate && value.endDate
+      ? (() => {
+          let count = 0;
+          let key = value.startDate;
+          while (key <= value.endDate) {
+            if (coversDay(previewTask, key)) count += 1;
+            key = addDays(key, 1);
+          }
+          return count;
+        })()
+      : 0;
+  const remaining = value.breakdown.length
+    ? value.breakdown.filter((item) => !item.done).length
+    : target > 0
+      ? Math.max(0, target - (Number(value.doneAmount) || 0))
+      : null;
+  const pace =
+    remaining != null && covered > 0
+      ? Math.round((remaining / Math.max(1, covered)) * 10) / 10
+      : null;
+  const livePace = data && value.id ? suggestedPace(data, previewTask, calendarKey()) : pace;
+
+  return (
+    <div className="stack" style={{ gap: 12 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        <Field label="单位">
+          <TextField
+            value={value.unit}
+            placeholder={suggestedUnitForName(value.name)}
+            onChange={(next) => onPatch({ unit: next })}
+          />
+        </Field>
+        <Field label="大概数量">
+          <NumberField
+            value={value.targetAmount}
+            width="100%"
+            step={1}
+            min={0}
+            title="还没拆章节时先填一个大概的数"
+            onChange={(targetAmount) => onPatch({ targetAmount })}
+          />
+        </Field>
+        <Field label="已完成">
+          <NumberField
+            value={value.doneAmount}
+            width="100%"
+            step={1}
+            min={0}
+            title={value.breakdown.length > 0 ? "有拆解时以勾选为准" : "没有按天记推进时，可手改"}
+            onChange={(doneAmount) => onPatch({ doneAmount })}
+          />
+        </Field>
+      </div>
+      <div className="small muted-3">
+        刷题用篇/套/题，背诵和笔记用章，肖四用题。后面才开始的任务可以只填大概数量，开始前一周会提醒来拆。
+        {livePace != null && remaining != null ? ` 按剩余窗口大约每天 ${livePace}${unit}。` : null}
+      </div>
+
+      <label className="row small" style={{ gap: 8, alignItems: "center" }}>
+        <input
+          type="checkbox"
+          checked={value.skipBreakdown}
+          onChange={(event) => onPatch({ skipBreakdown: event.target.checked })}
+        />
+        这项不用拆章节（单词这类维持任务可勾）
+      </label>
+
+      {value.skipBreakdown ? null : (
+        <Field label="拆成章节 / 结构">
+          <div className="stack" style={{ gap: 8 }}>
+            {value.breakdown.map((item, index) => (
+              <div key={item.id} className="row" style={{ gap: 6 }}>
+                <input
+                  type="checkbox"
+                  checked={item.done}
+                  onChange={(event) => {
+                    const breakdown = value.breakdown.map((entry, entryIndex) =>
+                      entryIndex === index ? { ...entry, done: event.target.checked } : entry,
+                    );
+                    onPatch({ breakdown });
+                  }}
+                  style={{ width: 16, height: 16 }}
+                />
+                <TextField
+                  value={item.name}
+                  onChange={(name) => {
+                    const breakdown = value.breakdown.map((entry, entryIndex) =>
+                      entryIndex === index ? { ...entry, name } : entry,
+                    );
+                    onPatch({ breakdown });
+                  }}
+                />
+                <Button
+                  small
+                  onClick={() =>
+                    onPatch({ breakdown: value.breakdown.filter((entry) => entry.id !== item.id) })
+                  }
+                >
+                  删
+                </Button>
+              </div>
+            ))}
+            <textarea
+              className="field"
+              rows={3}
+              value={paste}
+              placeholder="一行一项，例如：&#10;第一章 福利国家&#10;第二章 贫困"
+              onChange={(event) => setPaste(event.target.value)}
+            />
+            <div className="row" style={{ justifyContent: "flex-end" }}>
+              <Button
+                small
+                disabled={!paste.trim()}
+                onClick={() => {
+                  onPatch({ breakdown: [...value.breakdown, ...parseBreakdownText(paste)] });
+                  setPaste("");
+                }}
+              >
+                加入拆解
+              </Button>
+            </div>
+          </div>
+        </Field>
+      )}
+    </div>
   );
 }
 
