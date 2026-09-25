@@ -4,7 +4,8 @@ import {
   addDays,
   dayIndex,
   diffDays,
-  snapHour,
+  snapSlot,
+  SLOT_HOUR,
   type Span,
   weekCellKey,
   weekEndKey,
@@ -77,8 +78,8 @@ export function writeDayHours(
 ): Record<string, number> {
   const next = { ...(map ?? {}) };
   const key = weekCellKey(task.id, dateKey);
-  const value = Math.max(0, snapHour(hours));
-  if (value === snapHour(Math.max(0, task.dailyHours))) delete next[key];
+  const value = Math.max(0, snapSlot(hours));
+  if (Math.abs(value - snapSlot(Math.max(0, task.dailyHours))) < 0.001) delete next[key];
   else next[key] = value;
   return next;
 }
@@ -156,7 +157,7 @@ export function generateDayPlan(data: PlannerData, dateKey: string): DayPlan {
   const plan: DayPlan = {};
   let cursor = HOUR_START;
   for (const task of tasksOfDay(data, dateKey)) {
-    const duration = snapHour(hoursOnDay(data, task, dateKey));
+    const duration = snapSlot(hoursOnDay(data, task, dateKey));
     if (duration <= 0) continue;
     const subject = subjectOf(data, task.subjectId);
     cursor = Math.max(cursor, preferredStart(task, subject));
@@ -176,7 +177,7 @@ export function generateDayPlan(data: PlannerData, dateKey: string): DayPlan {
 
 export function dayHoursNeeded(data: PlannerData, dateKey: string): number {
   return tasksOfDay(data, dateKey).reduce(
-    (sum, task) => sum + snapHour(hoursOnDay(data, task, dateKey)),
+    (sum, task) => sum + snapSlot(hoursOnDay(data, task, dateKey)),
     0,
   );
 }
@@ -272,14 +273,14 @@ export function applyDailyHoursToDayPlans(
     const override = dayHours?.[weekCellKey(task.id, dateKey)];
     const hours =
       typeof override === "number" && !Number.isNaN(override) ? override : task.dailyHours;
-    const duration = Math.max(0, snapHour(hours));
+    const duration = Math.max(0, snapSlot(hours));
     if (duration <= 0) {
       const { [task.id]: _removed, ...rest } = plan;
       next[dateKey] = rest;
       changed = true;
       continue;
     }
-    const end = Math.min(HOUR_END, Math.max(entry.start + 0.5, snapHour(entry.start + duration)));
+    const end = Math.min(HOUR_END, Math.max(entry.start + SLOT_HOUR, snapSlot(entry.start + duration)));
     if (entry.end === end) {
       next[dateKey] = plan;
       continue;
@@ -299,12 +300,12 @@ export function applyHoursToStoredEntry(
   const plan = dayPlans[dateKey];
   const entry = plan?.[taskId];
   if (!entry) return dayPlans;
-  const hours = Math.max(0, snapHour(duration));
+  const hours = Math.max(0, snapSlot(duration));
   if (hours <= 0) {
     const { [taskId]: _removed, ...rest } = plan;
     return { ...dayPlans, [dateKey]: rest };
   }
-  const end = Math.min(HOUR_END, Math.max(entry.start + 0.5, snapHour(entry.start + hours)));
+  const end = Math.min(HOUR_END, Math.max(entry.start + SLOT_HOUR, snapSlot(entry.start + hours)));
   if (entry.end === end) return dayPlans;
   return { ...dayPlans, [dateKey]: { ...plan, [taskId]: { ...entry, end } } };
 }
@@ -337,13 +338,13 @@ export function weekTotal(data: PlannerData, week: number, span: Span): number {
 
 /** 杂事从时间轴底部往上叠，互不影响总览和周历 */
 export function placeMiscAtBottom(existing: DayMisc[], hours: number): { start: number; end: number } {
-  const duration = Math.max(0.5, snapHour(hours));
+  const duration = Math.max(SLOT_HOUR, snapSlot(hours));
   let end = HOUR_END;
   const sorted = [...existing].sort((left, right) => right.end - left.end);
   for (const item of sorted) {
     if (item.end > end - duration && item.start < end) end = Math.min(end, item.start);
   }
-  const start = Math.min(HOUR_END - duration, Math.max(HOUR_START, snapHour(end - duration)));
+  const start = Math.min(HOUR_END - duration, Math.max(HOUR_START, snapSlot(end - duration)));
   return { start, end: start + duration };
 }
 
@@ -355,7 +356,7 @@ export function placeMiscForSlot(
   hours: number,
   slot?: DayMiscSlot,
 ): { start: number; end: number } {
-  const duration = Math.max(0.5, snapHour(hours));
+  const duration = Math.max(SLOT_HOUR, snapSlot(hours));
   if (!slot) return placeMiscAtBottom(existing, duration);
   const from = slot === "morning" ? HOUR_START : slot === "afternoon" ? 13 : 19;
   const to = slot === "morning" ? 12 : slot === "afternoon" ? 18 : HOUR_END;
@@ -365,7 +366,7 @@ export function placeMiscForSlot(
     if (item.end <= cursor || item.start >= cursor + duration) continue;
     cursor = Math.max(cursor, item.end);
   }
-  cursor = snapHour(cursor);
+  cursor = snapSlot(cursor);
   if (cursor + duration <= to + 0.05) return { start: cursor, end: cursor + duration };
   return placeMiscAtBottom(existing, duration);
 }

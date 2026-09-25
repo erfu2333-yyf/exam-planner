@@ -231,6 +231,8 @@ export default function App() {
               task.id === taskId ? applyDoneDeltaToBreakdown(task, nextDelta, prevDelta) : task,
             )
           : current.tasks;
+      const task = current.tasks.find((item) => item.id === taskId);
+      const durationChanged = patch.start != null || patch.end != null;
       return {
         ...current,
         tasks,
@@ -238,6 +240,10 @@ export default function App() {
           ...current.dayPlans,
           [dateKey]: { ...plan, [taskId]: next },
         },
+        dayHours:
+          durationChanged && task
+            ? writeDayHours(current.dayHours, task, dateKey, Math.max(0, next.end - next.start))
+            : current.dayHours,
         weekTexts:
           patch.note != null
             ? { ...current.weekTexts, [weekCellKey(taskId, dateKey)]: patch.note }

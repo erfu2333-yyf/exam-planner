@@ -3,9 +3,11 @@ import {
   BOLD_HOURS,
   HOUR_END,
   HOUR_START,
+  SLOT_HOUR,
   formatCN,
+  formatDuration,
   formatHour,
-  snapHour,
+  snapSlot,
 } from "../dateUtils";
 import { parseMiscName, type DayImportItem } from "../dayImport";
 import { dayActualHours, taskProgress, taskUnit } from "../progress";
@@ -13,11 +15,11 @@ import { dayPlanCapacityError, dayPlanOf, entryHours, placeMiscAtBottom, planned
 import type { ActiveTimer } from "../timer";
 import { formatElapsed, timerElapsedMs } from "../timer";
 import { GRAY_ID, gradientOf, tint } from "../theme";
-import type { DayEntry, DayMisc, PlannerData, TaskStatus } from "../types";
+import type { DayEntry, DayMisc, DayPlan, PlannerData, Task, TaskStatus } from "../types";
 import { DayImportPanel } from "./DayImportPanel";
 import { Button, Callout, NumberField } from "./ui";
 
-const PX_PER_HOUR = 36;
+const PX_PER_HOUR = 48;
 
 type Drag =
   | { kind: "task"; id: string; mode: "move" | "resize"; grabOffset: number }
@@ -30,7 +32,7 @@ export function DayView({
   timer,
   now,
   onToggleTimer,
-  onSyncTimerHours,
+  onSyncTimerHours: _onSyncTimerHours,
   timerHoursOf,
   onDateShift,
   onSelect,
@@ -74,12 +76,20 @@ export function DayView({
   const [miscMenu, setMiscMenu] = useState<{ miscId: string; x: number; y: number } | null>(null);
   const [miscDraft, setMiscDraft] = useState("");
   const [miscHours, setMiscHours] = useState("1");
+  const [timerTaskId, setTimerTaskId] = useState("");
+  const [editId, setEditId] = useState<string | null>(null);
   const [planError, setPlanError] = useState<string | null>(null);
   const capacityError = dayPlanCapacityError(data, dateKey);
   useEffect(() => setPlanError(null), [dateKey]);
 
   const plan = dayPlanOf(data, dateKey);
   const tasks = tasksOfDay(data, dateKey);
+  const placedKey = tasks.filter((task) => plan[task.id]).map((task) => task.id).join(",");
+  useEffect(() => {
+    const runningId = timer?.running && timer.dateKey === dateKey ? timer.taskId : "";
+    const ids = placedKey ? placedKey.split(",") : [];
+    setTimerTaskId((current) => runningId || (ids.includes(current) ? current : ids[0] ?? ""));
+  }, [dateKey, timer?.running, timer?.taskId, timer?.dateKey, placedKey]);
   const hours = Array.from({ length: HOUR_END - HOUR_START }, (_, i) => HOUR_START + i);
   const miscs = data.dayMiscs[dateKey] ?? [];
   const arranged =
@@ -96,7 +106,7 @@ export function DayView({
     const track = trackRef.current;
     if (!track) return HOUR_START;
     const rect = track.getBoundingClientRect();
-    return snapHour(HOUR_START + (clientY - rect.top) / PX_PER_HOUR);
+    return snapSlot(HOUR_START + (clientY - rect.top) / PX_PER_HOUR);
   };
 
   useEffect(() => {
@@ -108,28 +118,28 @@ export function DayView({
         const entry = plan[drag.id];
         if (!entry) return;
         if (drag.mode === "move") {
-          const duration = Math.max(0.5, entry.end - entry.start);
+          const duration = Math.max(SLOT_HOUR, entry.end - entry.start);
           const start = Math.min(
             HOUR_END - duration,
-            Math.max(HOUR_START, snapHour(hour - drag.grabOffset)),
+            Math.max(HOUR_START, snapSlot(hour - drag.grabOffset)),
           );
           onEntryChange(drag.id, { start, end: start + duration });
         } else {
-          onEntryChange(drag.id, { end: Math.max(entry.start + 0.5, hour) });
+          onEntryChange(drag.id, { end: Math.max(entry.start + SLOT_HOUR, hour) });
         }
         return;
       }
       const item = miscs.find((entry) => entry.id === drag.id);
       if (!item) return;
       if (drag.mode === "move") {
-        const duration = Math.max(0.5, item.end - item.start);
+        const duration = Math.max(SLOT_HOUR, item.end - item.start);
         const start = Math.min(
           HOUR_END - duration,
-          Math.max(HOUR_START, snapHour(hour - drag.grabOffset)),
+          Math.max(HOUR_START, snapSlot(hour - drag.grabOffset)),
         );
         onPatchMisc(drag.id, { start, end: start + duration });
       } else {
-        onPatchMisc(drag.id, { end: Math.max(item.start + 0.5, hour) });
+        onPatchMisc(drag.id, { end: Math.max(item.start + SLOT_HOUR, hour) });
       }
     };
     const onUp = () => setDrag(null);
@@ -181,7 +191,21 @@ export function DayView({
         <Callout tone="warning">{planError ?? capacityError}</Callout>
       ) : null}
 
-      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2.4fr) minmax(250px, 1fr)", gap: 12 }}>
+      <TimerBar
+        data={data}
+        dateKey={dateKey}
+        tasks={tasks}
+        plan={plan}
+        timer={timer}
+        now={now}
+        taskId={timerTaskId}
+        onTaskId={setTimerTaskId}
+        onToggle={() => {
+          if (timerTaskId) onToggleTimer(timerTaskId);
+        }}
+      />
+
+      <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 2.4fr) minmax(320px, 1fr)", gap: 12 }}>
         <div className="card">
           <div style={{ display: "grid", gridTemplateColumns: "56px minmax(0, 1fr)" }}>
             <div style={{ background: "var(--surface-2)" }}>
@@ -233,7 +257,7 @@ export function DayView({
                 if (!entry) return null;
                 const subject = subjectOf(data, task.subjectId);
                 const top = (entry.start - HOUR_START) * PX_PER_HOUR + 1;
-                const height = Math.max(0.5, entry.end - entry.start) * PX_PER_HOUR - 2;
+                const height = Math.max(SLOT_HOUR, entry.end - entry.start) * PX_PER_HOUR - 2;
                 const compact = height < 40;
                 return (
                   <div
@@ -353,7 +377,7 @@ export function DayView({
 
               {miscs.map((item) => {
                 const top = (item.start - HOUR_START) * PX_PER_HOUR + 1;
-                const height = Math.max(0.5, item.end - item.start) * PX_PER_HOUR - 2;
+                const height = Math.max(SLOT_HOUR, item.end - item.start) * PX_PER_HOUR - 2;
                 const compact = height < 40;
                 const colorId = item.colorId ?? GRAY_ID;
                 return (
@@ -490,10 +514,10 @@ export function DayView({
               </label>
               <div style={{ textAlign: "right" }}>
                 <div className="small muted">已排 / 实际</div>
-                <div style={{ fontSize: 22, fontWeight: 700 }}>
-                  {arranged.toFixed(1)}h
+                <div style={{ fontSize: 20, fontWeight: 700 }}>
+                  {formatDuration(arranged)}
                   <span className="small" style={{ fontWeight: 600, marginLeft: 6 }}>
-                    / {actualTotal.toFixed(1)}h
+                    / {formatDuration(actualTotal)}
                   </span>
                 </div>
               </div>
@@ -506,11 +530,8 @@ export function DayView({
               }}
             >
               {arranged > planned
-                ? `超出计划 ${(arranged - planned).toFixed(1)}h`
-                : `还可安排 ${(planned - arranged).toFixed(1)}h`}
-              {timer?.running && timer.dateKey === dateKey
-                ? ` · 正在计时 ${formatElapsed(timerElapsedMs(timer, now))}`
-                : ""}
+                ? `超出计划 ${formatDuration(arranged - planned)}`
+                : `还可安排 ${formatDuration(planned - arranged)}`}
             </div>
           </div>
 
@@ -530,6 +551,9 @@ export function DayView({
                 const actual = timerHoursOf(task.id, entry.actualHours ?? 0);
                 const progress = taskProgress(data, task);
                 const unit = taskUnit(task);
+                const budget = entryHours(entry);
+                const open = editId === task.id;
+                const showProgress = !(task.skipBreakdown && progress.source === "none" && progress.done <= 0);
                 return (
                   <div
                     key={task.id}
@@ -538,14 +562,14 @@ export function DayView({
                       setMenu({ taskId: task.id, x: event.clientX, y: event.clientY });
                     }}
                     style={{
-                      padding: "6px 6px",
+                      padding: "5px 6px",
                       borderRadius: 6,
                       background: tint(task.colorId, running ? 0.28 : 0.16),
                       outline: running ? "1px solid var(--accent)" : "none",
                       cursor: "context-menu",
                     }}
                   >
-                    <div className="row" style={{ gap: 7 }}>
+                    <div className="row" style={{ gap: 6 }}>
                       <input
                         type="checkbox"
                         checked={entry.status === "done"}
@@ -570,50 +594,52 @@ export function DayView({
                       >
                         {subject?.name} · {task.name}
                       </span>
+                      <span className="small muted-3" style={{ flexShrink: 0 }}>
+                        实际 {formatDuration(actual)}
+                      </span>
+                      <span className="small" style={{ flexShrink: 0, fontWeight: 600 }}>
+                        预算 {formatDuration(budget)}
+                      </span>
                       <Button
                         small
-                        variant={running ? "primary" : "default"}
-                        onClick={() => onToggleTimer(task.id)}
-                        title="同时只能开一条计时。换任务会先暂停当前这条。"
+                        onClick={() => setEditId(open ? null : task.id)}
+                        title="编辑预算和推进"
                       >
-                        {running ? "暂停" : "开始"}
+                        {open ? "收起" : "编辑"}
                       </Button>
                     </div>
-                    <div className="row" style={{ gap: 6, marginTop: 5, flexWrap: "wrap" }}>
-                      <span className="small muted">实际</span>
-                      <NumberField
-                        value={actual}
-                        width={52}
-                        step={0.1}
-                        title="计时写入，也可手改"
-                        onChange={(value) => {
-                          const hours = Number(value) || 0;
-                          onEntryChange(task.id, { actualHours: hours });
-                          onSyncTimerHours(task.id, hours);
-                        }}
-                      />
-                      <span className="small muted-3">
-                        {running && timer ? formatElapsed(timerElapsedMs(timer, now)) : `预算 ${entryHours(entry).toFixed(1)}h`}
-                      </span>
-                      {task.skipBreakdown && progress.source === "none" && progress.done <= 0 ? null : (
-                        <>
-                          <span className="small muted" style={{ marginLeft: 4 }}>
-                            推进
-                          </span>
-                          <NumberField
-                            value={entry.doneDelta ?? ""}
-                            width={46}
-                            step={1}
-                            min={0}
-                            title={`今天推进了多少${unit}`}
-                            onChange={(value) =>
-                              onEntryChange(task.id, { doneDelta: Number(value) || 0 })
-                            }
-                          />
-                          <span className="small muted-3">{unit}</span>
-                        </>
-                      )}
-                    </div>
+                    {open ? (
+                      <div className="stack" style={{ gap: 6, marginTop: 8 }}>
+                        <DurationFields
+                          label="预算"
+                          hours={budget}
+                          title="跟左侧色块同步，拖色块或在这里改"
+                          onChange={(hours) =>
+                            onEntryChange(task.id, {
+                              end: Math.min(HOUR_END, snapSlot(entry.start + Math.max(SLOT_HOUR, hours))),
+                            })
+                          }
+                        />
+                        {showProgress ? (
+                          <div className="row" style={{ gap: 6 }}>
+                            <span className="small muted" style={{ width: 28 }}>
+                              推进
+                            </span>
+                            <NumberField
+                              value={entry.doneDelta ?? ""}
+                              width={88}
+                              step={1}
+                              min={0}
+                              title={`今天推进了多少${unit}`}
+                              onChange={(value) =>
+                                onEntryChange(task.id, { doneDelta: Number(value) || 0 })
+                              }
+                            />
+                            <span className="small muted-3">{unit}</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    ) : null}
                   </div>
                 );
               })}
@@ -656,7 +682,7 @@ export function DayView({
                     }}
                   />
                   <span className="small muted-3" style={{ flexShrink: 0 }}>
-                    {Math.max(0, item.end - item.start).toFixed(1)}h
+                    {formatDuration(Math.max(0, item.end - item.start))}
                   </span>
                 </div>
               ))}
@@ -679,12 +705,13 @@ export function DayView({
                 />
                 <NumberField
                   value={miscHours}
-                  width={52}
-                  min={0.5}
-                  title="用多长时间（小时）"
+                  width={64}
+                  step={SLOT_HOUR}
+                  min={SLOT_HOUR}
+                  title="用多长时间（小时，10分钟一档）"
                   onChange={setMiscHours}
                 />
-                <span className="small muted">h</span>
+                <span className="small muted">小时</span>
                 <Button small disabled={!miscDraft.trim() || !(Number(miscHours) > 0)} onClick={addMisc}>
                   添加
                 </Button>
@@ -761,6 +788,120 @@ export function DayView({
       </div>
 
       <DayImportPanel dateKey={dateKey} onImport={onAddDayItems} />
+    </div>
+  );
+}
+
+function TimerBar({
+  data,
+  dateKey,
+  tasks,
+  plan,
+  timer,
+  now,
+  taskId,
+  onTaskId,
+  onToggle,
+}: {
+  data: PlannerData;
+  dateKey: string;
+  tasks: Task[];
+  plan: DayPlan;
+  timer: ActiveTimer | null;
+  now: number;
+  taskId: string;
+  onTaskId: (taskId: string) => void;
+  onToggle: () => void;
+}) {
+  const running = Boolean(timer?.running && timer.dateKey === dateKey);
+  const liveTaskId = running && timer ? timer.taskId : taskId;
+  const task = tasks.find((item) => item.id === liveTaskId);
+  const subject = task ? subjectOf(data, task.subjectId) : undefined;
+  const elapsed =
+    timer && timer.dateKey === dateKey && (running || timer.taskId === liveTaskId)
+      ? timerElapsedMs(timer, now)
+      : 0;
+  return (
+    <div className="panel" style={{ textAlign: "center" }}>
+      <div
+        className="row"
+        style={{ justifyContent: "center", gap: 12, flexWrap: "wrap", alignItems: "center" }}
+      >
+        <strong>计时</strong>
+        <select
+          className="field"
+          value={liveTaskId}
+          disabled={running}
+          onChange={(event) => onTaskId(event.target.value)}
+          style={{ width: 220, textAlign: "left" }}
+        >
+          {tasks
+            .filter((item) => plan[item.id])
+            .map((item) => (
+              <option key={item.id} value={item.id}>
+                {subjectOf(data, item.subjectId)?.name} · {item.name}
+              </option>
+            ))}
+        </select>
+        <span style={{ fontSize: 28, fontWeight: 800, minWidth: 160 }}>
+          {formatElapsed(elapsed)}
+        </span>
+        <Button
+          variant="primary"
+          disabled={!liveTaskId}
+          onClick={onToggle}
+          title="同时只能开一条。换任务会先停当前这条。"
+        >
+          {running ? "暂停" : "开始"}
+        </Button>
+      </div>
+      <div className="small muted" style={{ marginTop: 6 }}>
+        {running
+          ? `正在计 ${subject?.name ?? ""} · ${task?.name ?? ""}`
+          : "时间表上方计时。拉色块改预算，计时只记实际用时。"}
+      </div>
+    </div>
+  );
+}
+
+function DurationFields({
+  label,
+  hours,
+  title,
+  onChange,
+}: {
+  label: string;
+  hours: number;
+  title?: string;
+  onChange: (hours: number) => void;
+}) {
+  const total = Math.max(0, Math.round(hours * 60));
+  const hour = Math.floor(total / 60);
+  const minute = total % 60;
+  return (
+    <div className="row" style={{ gap: 6 }} title={title}>
+      <span className="small muted" style={{ width: 28 }}>
+        {label}
+      </span>
+      <NumberField
+        value={hour}
+        width={48}
+        step={1}
+        min={0}
+        onChange={(value) => onChange(Math.max(0, (Number(value) || 0) + minute / 60))}
+      />
+      <span className="small muted-3">小时</span>
+      <NumberField
+        value={minute}
+        width={52}
+        step={10}
+        min={0}
+        onChange={(value) => {
+          const nextMinute = Math.max(0, Number(value) || 0);
+          onChange(hour + nextMinute / 60);
+        }}
+      />
+      <span className="small muted-3">分钟</span>
     </div>
   );
 }

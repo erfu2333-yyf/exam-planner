@@ -52,9 +52,14 @@ export function timerHours(timer: ActiveTimer, now = Date.now()): number {
 }
 
 export function formatElapsed(ms: number): string {
-  if (ms < 60_000) return `${Math.max(0, Math.floor(ms / 1000))}秒`;
-  if (ms < 3_600_000) return `${Math.floor(ms / 60_000)}分钟`;
-  return `${(ms / 3_600_000).toFixed(1)}h`;
+  const total = Math.max(0, Math.floor(ms / 1000));
+  const hour = Math.floor(total / 3600);
+  const minute = Math.floor((total % 3600) / 60);
+  const second = total % 60;
+  if (hour <= 0 && minute <= 0) return `${second}秒`;
+  if (hour <= 0) return `${minute}分钟`;
+  if (minute === 0) return `${hour}小时`;
+  return `${hour}小时${minute}分钟`;
 }
 
 function pauseTimer(timer: ActiveTimer, now = Date.now()): ActiveTimer {

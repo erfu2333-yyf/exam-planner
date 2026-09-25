@@ -61,7 +61,7 @@ export type DayMisc = {
 };
 
 export type DayEntry = {
-  /** 小时，支持半小时，如 7.5 */
+  /** 当天色块起点，10 分钟一档 */
   start: number;
   end: number;
   note: string;

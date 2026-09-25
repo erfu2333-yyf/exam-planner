@@ -382,5 +382,5 @@ export function progressCaption(data: PlannerData, task: Task, today = calendarK
 }
 
 export function snapActualHours(value: number): number {
-  return Math.round(Math.max(0, value) * 10) / 10;
+  return Math.round(Math.max(0, value) * 60) / 60;
 }

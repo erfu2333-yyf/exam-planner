@@ -138,10 +138,28 @@ export function snapHour(value: number): number {
   return Math.round(value * 2) / 2;
 }
 
+/** 当天色块：10 分钟一档 */
+export const SLOT_MINUTES = 10;
+export const SLOT_HOUR = SLOT_MINUTES / 60;
+
+export function snapSlot(value: number): number {
+  return Math.round(value * (60 / SLOT_MINUTES)) / (60 / SLOT_MINUTES);
+}
+
 export function formatHour(value: number): string {
-  const hour = Math.floor(value);
-  const minute = Math.round((value - hour) * 60);
+  const total = Math.round(value * 60);
+  const hour = Math.floor(total / 60);
+  const minute = ((total % 60) + 60) % 60;
   return `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+}
+
+export function formatDuration(hours: number): string {
+  const total = Math.max(0, Math.round(hours * 60));
+  const hour = Math.floor(total / 60);
+  const minute = total % 60;
+  if (hour <= 0) return `${minute}分钟`;
+  if (minute === 0) return `${hour}小时`;
+  return `${hour}小时${minute}分钟`;
 }
 
 export function todayKey(span: Span): string {
