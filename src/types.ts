@@ -47,7 +47,7 @@ export type Task = {
 
 export type TaskStatus = "pending" | "done" | "unfinished";
 
-/** 只存在某一天的杂事，不进入总览和周历 */
+/** 只存在某一天的事项：休息、杂事等。进当天色块和统计，不进总览甘特行 */
 export type DayMisc = {
   id: string;
   name: string;
@@ -56,6 +56,8 @@ export type DayMisc = {
   status: TaskStatus;
   /** 当天这块的具体内容，和科目任务色块同一栏 */
   note?: string;
+  /** 计时写入；没记且已勾完时，统计按色块时长算 */
+  actualHours?: number;
   /** 缺省按灰处理，兼容旧数据；新加的事项会分配调色板颜色 */
   colorId?: string;
 };
@@ -76,6 +78,9 @@ export type DayEntry = {
 export type DayPlan = Record<string, DayEntry>;
 
 export type PlannerData = {
+  /** Derived overview reference; never used as daily execution records. */
+  studyReference?: import('./studyReference').StudyReference;
+  taskPlan?: import('./taskPlan').TaskPlan;
   subjects: Subject[];
   tasks: Task[];
   /** dateKey -> DayPlan，只存用户改过或已生成的日期 */

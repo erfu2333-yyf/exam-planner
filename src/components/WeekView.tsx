@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type ReactNode, type PointerEvent as ReactPointerEvent } from "react";
 import {
   calendarKey,
   formatMD,
@@ -29,6 +29,10 @@ function weekSplit(index: number): string {
 }
 
 export function WeekView({
+  compactStudySubjects,
+  renderStudyCell,
+  renderStudyInbox,
+  onOpenDay,
   data,
   span,
   week,
@@ -46,6 +50,10 @@ export function WeekView({
   onReorder,
   onReorderSubject,
 }: {
+  compactStudySubjects?:boolean;
+  renderStudyCell?: (task:Task,date:string)=>ReactNode;
+  renderStudyInbox?: (date:string)=>ReactNode;
+  onOpenDay?: (date:string)=>void;
   data: PlannerData;
   span: Span;
   week: number;
@@ -148,12 +156,13 @@ export function WeekView({
         <div style={{ display: "grid", gridTemplateColumns: GRID, background: "var(--surface-3)" }}>
           <div style={{ padding: "8px 10px", fontWeight: 600 }}>任务清单</div>
           <div className="small" style={{ padding: "8px 2px", fontWeight: 600, textAlign: "center" }}>
-            本周日均
+            {renderStudyCell ? "本周已排" : "本周日均"}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: dayTrack }}>
             {days.map((dateKey, index) => (
               <div
                 key={dateKey}
+                data-study-date={renderStudyCell?dateKey:undefined}
                 className={dayClass(dateKey, today, true)}
                 style={{
                   padding: "5px 4px",
@@ -162,7 +171,7 @@ export function WeekView({
                   opacity: fade(dateKey),
                 }}
               >
-                <div style={{ fontWeight: 700, color: dateKey === today ? "var(--accent)" : undefined }}>
+                <div onClick={()=>onOpenDay?.(dateKey)} style={{ cursor:onOpenDay?"pointer":undefined, fontWeight: 700, color: dateKey === today ? "var(--accent)" : undefined }}>
                   {dateKey === today ? "今天" : `周${weekdayShort(dateKey)}`}
                 </div>
                 <div
@@ -186,7 +195,7 @@ export function WeekView({
         >
           <div style={{ padding: "8px 10px" }}>
             <div style={{ fontWeight: 600 }}>计划 / 已排</div>
-            <div className="small muted-3">已排按日均用时累计</div>
+            <div className="small muted-3">{renderStudyCell ? "已排按具体安排累计" : "已排按日均用时累计"}</div>
           </div>
           <div />
           <div style={{ display: "grid", gridTemplateColumns: dayTrack }}>
@@ -256,11 +265,12 @@ export function WeekView({
           onScroll={(event) => syncHScroll(event.currentTarget.scrollLeft, event.currentTarget)}
         >
         <div style={{ minWidth: 210 + 74 + days.length * cellMin }}>
+        {renderStudyInbox ? <div style={{display:'grid',gridTemplateColumns:GRID,borderBottom:'1px solid var(--stroke)'}}><div style={{padding:'12px 10px'}}><strong>放入本周</strong><div className="small muted">只显示你排上的任务</div></div><div/><div style={{display:'grid',gridTemplateColumns:dayTrack}}>{days.map(date=><div key={date} style={{padding:5,borderLeft:'1px solid var(--stroke)'}}>{renderStudyInbox(date)}</div>)}</div></div>:null}
         {visibleSubjects.map((subject) => {
           const subjectTasks = weekTasks.filter((task) => task.subjectId === subject.id);
           return (
             <div key={subject.id} data-subject-id={subject.id}>
-              <WeekSubjectRow
+              {!compactStudySubjects ? <WeekSubjectRow
                 data={data}
                 subject={subject}
                 tasks={subjectTasks}
@@ -275,7 +285,7 @@ export function WeekView({
                   onDragStart();
                   setDrag({ kind: "subject", id: subject.id });
                 }}
-              />
+              /> : null}
               {sortSubjectTasks(subjectTasks).map((task) => {
                 const methodOpen = methodId === task.id;
                 return (
@@ -300,6 +310,7 @@ export function WeekView({
                       minWidth: 0,
                     }}
                   >
+                      {compactStudySubjects ? <strong style={{color:colorOf(task.colorId),padding:'10px 4px'}}>{task.name}</strong> : <>
                       <DragHandle
                         onPointerDown={(event) => {
                           event.preventDefault();
@@ -336,6 +347,7 @@ export function WeekView({
                       >
                         学法
                       </button>
+                      </>}
                   </div>
                   <div
                     style={{
@@ -346,12 +358,14 @@ export function WeekView({
                       justifyContent: "center",
                     }}
                   >
+                    {renderStudyCell ? <strong className="small">{focusDays.reduce((n,date)=>n+hoursOnDay(data,task,date),0).toFixed(1)}h</strong> : (
                     <NumberField
                       value={weekTaskAverage(data, task, focusDays)}
                       width={58}
                       onChange={(value) => onWeekAverageChange(task.id, Number(value) || 0)}
                       title="本周日均：左边一周总用时÷有任务的天数，只改那一周"
                     />
+                    )}
                   </div>
                   <div
                     style={{
@@ -367,6 +381,7 @@ export function WeekView({
                       return (
                         <div
                           key={cellKey}
+                          data-study-date={renderStudyCell?dateKey:undefined}
                           className={dayClass(dateKey, today)}
                           style={{
                             padding: 5,
@@ -381,7 +396,7 @@ export function WeekView({
                             opacity: fade(dateKey),
                           }}
                         >
-                          {active ? (
+                          {renderStudyCell ? renderStudyCell(task,dateKey) : active ? (
                             <div className="stack week-day-hours" style={{ gap: 3 }}>
                               <NumberField
                                 value={hoursOnDay(data, task, dateKey)}
@@ -432,7 +447,7 @@ export function WeekView({
           );
         })}
 
-        {visibleSubjects.length === 0 ? (
+        {visibleSubjects.length === 0 && !renderStudyInbox ? (
           <div className="muted" style={{ padding: 20, textAlign: "center" }}>
             本周没有任务
           </div>
@@ -441,7 +456,7 @@ export function WeekView({
         </div>
       </div>
 
-      <WeekReportBlock data={data} days={focusDays} open={reportOpen} onToggle={() => setReportOpen((value) => !value)} />
+      {!compactStudySubjects ? <WeekReportBlock data={data} days={focusDays} open={reportOpen} onToggle={() => setReportOpen((value) => !value)} /> : null}
     </div>
   );
 }

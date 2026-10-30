@@ -234,17 +234,40 @@ export function entryHours(entry: DayEntry): number {
   return Math.max(0, entry.end - entry.start);
 }
 
-/** 某天时间轴上实际铺开的时长 */
+export function miscHours(item: DayMisc): number {
+  return Math.max(0, item.end - item.start);
+}
+
+export function dayMiscHours(data: PlannerData, dateKey: string): number {
+  return (data.dayMiscs[dateKey] ?? []).reduce((sum, item) => sum + miscHours(item), 0);
+}
+
+export function miscActualHours(item: DayMisc): number {
+  if (typeof item.actualHours === "number" && !Number.isNaN(item.actualHours) && item.actualHours > 0) {
+    return item.actualHours;
+  }
+  if (item.status === "done") return miscHours(item);
+  return 0;
+}
+
+export function dayMiscActualHours(data: PlannerData, dateKey: string): number {
+  return (data.dayMiscs[dateKey] ?? []).reduce((sum, item) => sum + miscActualHours(item), 0);
+}
+
+/** 某天时间轴上实际铺开的时长，含休息和其他清单事项 */
 export function arrangedHoursOf(data: PlannerData, dateKey: string): number {
-  return Object.values(dayPlanOf(data, dateKey)).reduce(
-    (sum, entry) => sum + entryHours(entry),
-    0,
+  return (
+    Object.values(dayPlanOf(data, dateKey)).reduce((sum, entry) => sum + entryHours(entry), 0) +
+    dayMiscHours(data, dateKey)
   );
 }
 
-/** 周历顶部的「已排」：按覆盖当天的任务日均用时累计，跟总览同一套数 */
+/** 周历顶部的「已排」：当天任务用时 + 当天清单里的休息/其他 */
 export function scheduledHoursOf(data: PlannerData, dateKey: string): number {
-  return tasksOfDay(data, dateKey).reduce((sum, task) => sum + hoursOnDay(data, task, dateKey), 0);
+  return (
+    tasksOfDay(data, dateKey).reduce((sum, task) => sum + hoursOnDay(data, task, dateKey), 0) +
+    dayMiscHours(data, dateKey)
+  );
 }
 
 /**
@@ -314,11 +337,21 @@ export function plannedHoursOf(data: PlannerData, dateKey: string): number {
   return data.plannedHours[dateKey] ?? data.capacity;
 }
 
+export const MISC_LOAD_ID = "__misc__";
+
 /** 某周日均负荷：一周里实际发生的总时长 ÷ 这周日历天数，和总览格子、每日可用同一口径 */
 export function weekLoad(data: PlannerData, week: number, span: Span): Map<string, number> {
   const result = new Map<string, number>();
   const from = weekStartKey(week, span.origin);
   const to = weekEndKey(week, span);
+  if(data.studyReference){
+    const keys=data.studyReference.days.filter(d=>d>=from&&d<=to),count=Math.max(1,keys.length);
+    let assigned=0;
+    for(const subject of data.subjects){const ids=data.tasks.filter(t=>t.subjectId===subject.id).map(t=>t.id);const total=ids.reduce((n,id)=>n+keys.reduce((s,date)=>s+(data.studyReference!.hours[id]?.[date]??0),0),0);assigned+=total;if(total>0)result.set(subject.id,total/count);}
+    const total=keys.reduce((n,d)=>n+(data.studyReference!.totals[d]??0),0);
+    if(total>assigned+.001)result.set('__existing__',(total-assigned)/count);
+    return result;
+  }
   const days = Math.max(1, diffDays(from, to) + 1);
   for (const subject of data.subjects) {
     const total = data.tasks
@@ -327,6 +360,14 @@ export function weekLoad(data: PlannerData, week: number, span: Span): Map<strin
     const average = total / days;
     if (average > 0) result.set(subject.id, average);
   }
+  let miscTotal = 0;
+  let key = from;
+  while (key <= to) {
+    miscTotal += dayMiscHours(data, key);
+    key = addDays(key, 1);
+  }
+  const miscAverage = miscTotal / days;
+  if (miscAverage > 0) result.set(MISC_LOAD_ID, miscAverage);
   return result;
 }
 

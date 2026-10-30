@@ -1,3 +1,4 @@
+import { parentStudyTotals } from '../taskPlan';
 import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   calendarKey,
@@ -23,7 +24,7 @@ import { Button, Callout, NumberField, Pill } from "./ui";
 import type { ImportSubject } from "../planImport";
 import { DragHandle } from "./DragHandle";
 
-const GRID = "210px 74px minmax(0, 1fr)";
+const GRID = "210px 104px minmax(0, 1fr)";
 const SCALES: Array<{ id: TimelineScale; label: string }> = [
   { id: "day", label: "按天" },
   { id: "week", label: "按周" },
@@ -112,7 +113,7 @@ export function OverviewView({
   const columns = timelineColumns(span, weekFrom, weekTo, scale);
   const track = columnTrack(columns, scale === "day" ? 22 : 0);
   const timelineMinWidth = scale === "day" ? Math.max(720, columns.length * 22) : undefined;
-  const rowMinWidth = timelineMinWidth != null ? 210 + 74 + timelineMinWidth : undefined;
+  const rowMinWidth = timelineMinWidth != null ? 210 + 104 + timelineMinWidth : undefined;
   const visibleTasks = data.tasks.filter((task) => overlapsRange(task, rangeFrom, rangeTo));
   const visibleSubjects = subjectsOnScreen(data.subjects, data.tasks, visibleTasks);
   useEffect(() => {
@@ -124,12 +125,15 @@ export function OverviewView({
   return (
     <div className="stack" style={{ gap: 16 }}>
       <Callout>
-        新能力已经接上：双击左侧任务名可填大概数量、拆章节；点顶上第三个标签进当天，右侧清单有开始/暂停计时。没填数量时甘特条看起来会和以前差不多。
+        总体时间窗口只作参照。点击只选中，拖动起止后自动重算剩余任务的建议日均；理论每天 10h，最多按 12h 安排，已有周历和实学记录保留。
       </Callout>
+      {data.studyReference&&Object.values(data.studyReference.unplaced).some(h=>h>.01)?<Callout tone="warning">当前窗口按可用时间、每天不超过 12h 仍有 {Object.values(data.studyReference.unplaced).reduce((n,h)=>n+h,0).toFixed(1)}h 无法放入。请延长相应任务窗口或调整预算：{data.tasks.filter(t=>(data.studyReference!.unplaced[t.id]??0)>.01).map(t=>`${t.name} ${data.studyReference!.unplaced[t.id].toFixed(1)}h`).join('；')}</Callout>:null}
+      {data.studyReference?.outsideWindow.length?<Callout tone="warning">已有安排在新窗口之外，已保留：{data.studyReference.outsideWindow.slice(0,3).join('；')}</Callout>:null}
       <section className="panel">
         <div className="row" style={{ justifyContent: "space-between", marginBottom: 6 }}>
-          <strong style={{ fontSize: 16 }}>每周平均每天任务量</strong>
+          <strong style={{ fontSize: 16 }}>{data.studyReference ? "总体时间参照 · 剩余日期日均" : "每周平均每天任务量"}</strong>
           <div className="row small">
+            {data.studyReference ? <span className="muted">理论 10h/日 · 红线 12h/日</span> : <>
             <span className="muted">每日可用</span>
             <NumberField
               value={data.capacity}
@@ -137,6 +141,7 @@ export function OverviewView({
               width={58}
             />
             <span className="muted">小时</span>
+            </>}
           </div>
         </div>
         <LoadChart data={data} span={span} weekFrom={weekFrom} weekTo={weekTo} />
@@ -207,7 +212,7 @@ export function OverviewView({
         >
           <div className="planner-stick-name" style={{ padding: "9px 10px", fontWeight: 600 }}>任务清单</div>
           <div className="planner-stick-hours small" style={{ padding: "9px 4px", fontWeight: 600, textAlign: "center" }}>
-            日均用时
+            {data.taskPlan ? "预算 / 剩余" : "日均用时"}
           </div>
           <div
             ref={headClipRef}
@@ -241,6 +246,7 @@ export function OverviewView({
           return (
             <div key={subject.id} data-subject-id={subject.id}>
               <SubjectRow
+                data={data}
                 subject={subject}
                 tasks={subjectTasks}
                 columns={columns}
@@ -343,6 +349,10 @@ export function OverviewView({
                       }}
                     >
                       <div className="stack" style={{ gap: 2, alignItems: "center" }}>
+                        {data.taskPlan?.parentBudgets[task.id]!=null ? <div className="small" style={{textAlign:'center'}}>
+                          <strong>{parentStudyTotals(data,task.id).budget.toFixed(1)}h / {parentStudyTotals(data,task.id).remaining.toFixed(1)}h</strong>
+                          <div className="muted-3">实学 {parentStudyTotals(data,task.id).actual.toFixed(1)}h{parentStudyTotals(data,task.id).extraBudget>0?` · 追加${parentStudyTotals(data,task.id).extraBudget.toFixed(2)}h`:null}</div><div style={{color:task.dailyHours>12?"var(--danger)":"var(--text-2)"}}>建议 {task.dailyHours.toFixed(2)}h/日</div>
+                        </div> : (
                         <NumberField
                           value={task.dailyHours}
                           width={58}
@@ -350,7 +360,8 @@ export function OverviewView({
                             onTaskChange(task.id, { dailyHours: Number(value) || 0 }, false)
                           }
                         />
-                        {caption ? (
+)}
+                        {caption && data.taskPlan?.parentBudgets[task.id]==null ? (
                           <div
                             className="small"
                             style={{
@@ -433,7 +444,7 @@ export function OverviewView({
       </div>
 
       <div className="muted small">
-        左侧六点可上下拖动换二级任务顺序；双击名称改起止、大概数量和章节拆解。甘特条可整条拖动，拖两端改起止日期。有进度才会在条上浅色填充，没填数量不报警。
+        甘特条与原版相同：整条拖动、两端改起止。左侧显示总预算 / 剩余，条上浅色表示实学投入；点击只选中任务。调整窗口只改变建议节奏，不再批量生成每天任务。
       </div>
 
       <ImportPanel data={data} span={span} onImport={onImport} />
@@ -513,6 +524,7 @@ function TimelineHeader({
 }
 
 function SubjectRow({
+  data,
   subject,
   tasks,
   columns,
@@ -525,6 +537,7 @@ function SubjectRow({
   onManage,
   onDragPointerDown,
 }: {
+  data: PlannerData;
   subject: Subject;
   tasks: Task[];
   columns: TimelineColumn[];
@@ -538,7 +551,7 @@ function SubjectRow({
   onDragPointerDown: (event: ReactPointerEvent<HTMLButtonElement>) => void;
 }) {
   const values = columns.map((column) =>
-    tasks.reduce((sum, task) => sum + averageHoursInRange(task, column.start, column.end), 0),
+    data.studyReference ? tasks.reduce((n,t)=>n+data.studyReference!.days.filter(d=>d>=column.start&&d<=column.end).reduce((v,d)=>v+(data.studyReference!.hours[t.id]?.[d]??0),0),0)/Math.max(1,data.studyReference.days.filter(d=>d>=column.start&&d<=column.end).length) : tasks.reduce((sum, task) => sum + averageHoursInRange(task, column.start, column.end), 0),
   );
 
   return (
@@ -597,7 +610,7 @@ function SubjectRow({
               color: value > 0 ? "var(--text)" : "var(--text-3)",
             }}
           >
-            {columns.length > 20 ? "" : value > 0 ? `${value.toFixed(1)}h` : "–"}
+            {columns.length > 20 ? "" : value > 0 ? `建议 ${value.toFixed(1)}h/日` : "–"}
           </div>
         ))}
         <TodayLine span={span} weekFrom={weekFrom} weekTo={weekTo} />

@@ -33,6 +33,7 @@ export function parsePlanner(raw: string | null | unknown): PlannerData {
       examDate: parsed.examDate ?? DEFAULT_EXAM_DATE,
       capacity: parsed.capacity ?? INITIAL_DATA.capacity,
       breakdownSnooze: parsed.breakdownSnooze ?? {},
+      taskPlan: parsed.taskPlan?.version === 1 ? parsed.taskPlan : undefined,
     };
   } catch {
     return INITIAL_DATA;
@@ -215,5 +216,5 @@ export function usePlanner(spaceId: string | null, cloud = false) {
     });
   }, []);
 
-  return { data, commit, update, undo, canUndo: history.length > 0, saveError };
+  return { data, commit, update, undo, canUndo: history.length > 0, saveError, hydrated };
 }

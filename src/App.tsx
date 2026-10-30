@@ -1,6 +1,16 @@
-import { useEffect, useState } from "react";
-import { applySuggestion } from "./ai";
 import { AiPanel } from "./components/AiPanel";
+import { applySuggestion } from "./ai";
+import { StudyBudgetDialog } from './components/StudyBudgetDialog';
+import { StudyBudgetWarning } from './studyBudgetWarning';
+import { ActualStudyGantt } from './components/ActualStudyGantt';
+import { StudyTaskEditor } from './components/StudyTaskListEditor';
+import { useEffect, useMemo, useState } from "react";
+import { StudyProgress } from './components/StudyProgress';
+import { OriginalWeekBoard } from './components/OriginalWeekBoard';
+import { createStudyPlan, moveStudy, patchStudy, regenerateStudyDay, rolloverStudy, studyDayData, studyOverviewData, studyTotals, studyDayOverlaps, parentStudyTotals, applyStudyBudgetChoice, withdrawStudy } from './taskPlan';
+import './study.css';
+
+
 import { DayView } from "./components/DayView";
 import {
   ConfirmDialog,
@@ -66,7 +76,7 @@ import { profileNeedsPass, useWorkspace } from "./workspace";
 
 export default function App() {
   const workspace = useWorkspace();
-  const { data, commit, update, undo, canUndo, saveError } = usePlanner(
+  const { data, commit, update, undo, canUndo, saveError, hydrated } = usePlanner(
     workspace.profile?.id ?? null,
     Boolean(workspace.profile?.cloud),
   );
@@ -81,12 +91,15 @@ export default function App() {
 
   const [view, setView] = useState<ViewKey>("overview");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [budgetEditor,setBudgetEditor] = useState<string|null>(null);
+  const [budgetRequest,setBudgetRequest] = useState<{action:(data:PlannerData)=>PlannerData;warning:StudyBudgetWarning}|null>(null);
+  const [studyError, setStudyError] = useState<string | null>(null);
   const [methodId, setMethodId] = useState<string | null>(null);
   const [week, setWeek] = useState(() =>
     Math.max(0, weekOfIndex(dayIndex(calendarKey(), PLAN_ORIGIN))),
   );
   const [dayKey, setDayKey] = useState(() => calendarKey());
-  const [filterFrom, setFilterFrom] = useState("1");
+  const [filterFrom, setFilterFrom] = useState(() => data.taskPlan ? String(Math.max(1,weekOfIndex(dayIndex(calendarKey(),PLAN_ORIGIN))+1)) : '1');
   const [filterTo, setFilterTo] = useState("");
 
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
@@ -105,6 +118,18 @@ export default function App() {
   const today = todayKey(span);
   const eventName = data.eventName?.trim() || "考研";
   const daysLeft = daysUntilExam(calendarKey(), data.examDate);
+  const dayData = studyDayData(data,dayKey);
+  const overviewData = useMemo(()=>studyOverviewData(data),[data]);
+  const dayOverlaps = data.taskPlan ? studyDayOverlaps(data,dayKey) : [];
+  const activeId = timerApi.timer?.running ? timerApi.timer.taskId : undefined;
+  const studyAction = (action:(current:PlannerData)=>PlannerData) => {
+    try { action(data);commit(current=>{try{return action(current);}catch(error){queueMicrotask(()=>{if(error instanceof StudyBudgetWarning)setBudgetRequest({action,warning:error});else setStudyError(error instanceof Error?error.message:String(error));});return current;}});setStudyError(null); }
+    catch(error){if(error instanceof StudyBudgetWarning){setBudgetRequest({action,warning:error});setStudyError(null);}else setStudyError(error instanceof Error?error.message:String(error));}
+  };
+  useEffect(()=>{
+    if(!hydrated || !data.taskPlan || rolloverStudy(data,calendarKey(),activeId)===data)return;
+    update(current=>rolloverStudy(current,calendarKey(),activeId));
+  },[data, today, activeId, update, hydrated]);
 
   useEffect(() => {
     const refresh = () => setNow(Date.now());
@@ -160,6 +185,7 @@ export default function App() {
   }, [timerApi.timer?.running, timerApi.timer?.taskId, timerApi.timer?.dateKey]);
 
   useEffect(() => {
+    if (data.taskPlan) return;
     if (carryoverDismissed) return;
     const yesterday = addDays(today, -1);
     if (dayIndex(yesterday, span.origin) < 0) return;
@@ -170,6 +196,15 @@ export default function App() {
   }, [data, today, carryoverDismissed, span.origin]);
 
   const patchTask = (taskId: string, patch: Partial<Task>, undoable = true) => {
+    if(data.taskPlan?.parentBudgets[taskId]!=null){
+      const children=data.taskPlan.children.filter(c=>c.parentId===taskId);
+      const earliest=children.map(c=>c.notBefore).filter((d):d is string=>!!d).sort().at(-1);
+      const latest=children.map(c=>c.notAfter).filter((d):d is string=>!!d).sort()[0];
+      if((patch.startDate&&earliest&&patch.startDate<earliest)||(patch.endDate&&latest&&patch.endDate>latest)|| (patch.startDate&&patch.startDate<'2026-10-20') || (patch.endDate&&patch.endDate>=data.examDate)){
+        setStudyError('此任务窗口超出了可排程日期或阶段日期限制。');return;
+      }
+      (undoable?commit:update)(current=>{const before=current.tasks.find(t=>t.id===taskId)!;if(Object.keys(patch).every(key=>before[key as keyof Task]===patch[key as keyof Task]))return current;const next={...current,tasks:current.tasks.map(t=>t.id===taskId?{...t,...patch}:t)};const task=next.tasks.find(t=>t.id===taskId)!;const start=task.startDate>calendarKey()?task.startDate:calendarKey();const days=Math.max(0,dayIndex(task.endDate,start)+1);return {...next,tasks:next.tasks.map(t=>t.id===taskId?{...t,dailyHours:days?parentStudyTotals(next,taskId).remaining/days:0}:t)};});return;
+    }
     const apply = (current: PlannerData): PlannerData => {
       const tasks = current.tasks.map((task) =>
         task.id === taskId ? { ...task, ...patch } : task,
@@ -196,6 +231,8 @@ export default function App() {
 
   const writeActualHours = (dateKey: string, taskId: string, hours: number) => {
     update((current) => {
+      if(current.taskPlan?.sessions.some(s=>s.id===taskId))return patchStudy(current,taskId,{actualHours:snapActualHours(hours)});
+      if(current.dayMiscs[dateKey]?.some(m=>m.id===taskId))return {...current,dayMiscs:{...current.dayMiscs,[dateKey]:current.dayMiscs[dateKey].map(m=>m.id===taskId?{...m,actualHours:snapActualHours(hours)}:m)}};
       const plan = dayPlanOf(current, dateKey);
       const entry = plan[taskId];
       if (!entry) return current;
@@ -212,6 +249,10 @@ export default function App() {
   };
 
   const patchEntry = (dateKey: string, taskId: string, patch: Partial<DayEntry>) => {
+    if(data.taskPlan?.sessions.some(s=>s.id===taskId)){
+      try{const next=patchStudy(data,taskId,patch);update(()=>next);setStudyError(null);if(patch.actualHours!=null)timerApi.syncHours(taskId,dateKey,patch.actualHours);}
+      catch(error){if(error instanceof StudyBudgetWarning)setBudgetRequest({action:current=>patchStudy(current,taskId,patch),warning:error});else setStudyError(error instanceof Error?error.message:String(error));}return;
+    }
     update((current) => {
       const plan = dayPlanOf(current, dateKey);
       const entry = plan[taskId];
@@ -390,6 +431,8 @@ export default function App() {
   };
 
   const openEditTask = (task: Task) => {
+    if(data.taskPlan?.parentBudgets[task.id]!=null){setBudgetEditor(task.id);return;}
+
     setTaskDraft({
       id: task.id,
       subjectId: task.subjectId,
@@ -432,6 +475,9 @@ export default function App() {
   };
 
   const moveTaskToTomorrow = (fromKey: string, taskId: string) => {
+    if(data.taskPlan?.sessions.some(s=>s.id===taskId)){
+      studyAction(current=>moveStudy(current,taskId,addDays(fromKey,1)));return;
+    }
     const tomorrow = addDays(fromKey, 1);
     commit((current) => {
       const todayPlan = dayPlanOf(current, fromKey);
@@ -593,10 +639,13 @@ export default function App() {
       </div>
 
       {saveError ? <Callout tone="warning">{saveError}</Callout> : null}
+      {studyError ? <Callout tone="warning">{studyError}<Button small onClick={()=>setStudyError(null)}>关闭</Button></Callout> : null}
+      {!data.taskPlan ? <div className="card study-progress"><strong>按任务预算安排剩余备考</strong><p className="small muted">采用六科 500h、新英语任务和政治五阶段。保留本周已有安排、未来已保存安排及所有历史记录；旧记录不擅自归入新任务。政治阶段一的读练预算需要你明确分配。</p><Button disabled={!hydrated || Boolean(activeId)} onClick={()=>{studyAction(current=>createStudyPlan(current));setFilterFrom(String(Math.max(1,weekOfIndex(dayIndex(calendarKey(),PLAN_ORIGIN))+1)));}}>启用任务预算与周历安排</Button></div> : view === "overview" ? <StudyProgress data={data}/> : null}
 
       {view === "overview" ? (
+        <div>
         <OverviewView
-          data={data}
+          data={overviewData}
           span={span}
           selectedId={selectedId}
           methodId={methodId}
@@ -634,9 +683,16 @@ export default function App() {
           }
           onImport={(subjects) => commit((current) => applyImport(current, subjects))}
         />
+        {data.taskPlan?<ActualStudyGantt data={data} onDay={date=>{setDayKey(date);setView('day');}}/>:null}
+        </div>
       ) : null}
 
-      {view === "week" ? (
+      {view === 'week' && data.taskPlan ? <OriginalWeekBoard data={data} span={span} week={week} parentId={selectedId} activeId={activeId}
+        onParent={setSelectedId} onWeek={delta=>setWeek(w=>Math.max(0,Math.min(totalWeeks-1,w+delta)))}
+        onDay={(date,taskId)=>{setDayKey(date);if(taskId)setSelectedId(taskId);setView('day');}}
+        onMutate={studyAction} onEditTask={openEditTask} onManageSubject={openSubject}
+      /> : null}
+      {view === "week" && !data.taskPlan ? (
         <WeekView
           data={data}
           span={span}
@@ -694,14 +750,19 @@ export default function App() {
       ) : null}
 
       {view === "day" ? (
+        <>
+        {data.taskPlan?<div className="card study-day-controls"><div className="row"><Button onClick={()=>{setWeek(Math.max(0,Math.min(totalWeeks-1,weekOfIndex(dayIndex(dayKey,span.origin)))));setView('week');}}>添加到这一天</Button><span className="small muted">当天实学和完成数量会回写任务进度；排入日历不算完成</span></div><div className="row" style={{marginTop:8}}>{data.taskPlan.sessions.filter(s=>s.date===dayKey&&!s.withdrawn).map(s=><div key={s.id} className="row"><span className="small"><button className="study-open" onClick={()=>{const child=data.taskPlan!.children.find(c=>c.id===s.childId)!;setSelectedId(child.parentId);setView('overview');}}>{data.tasks.find(t=>t.id===data.taskPlan!.children.find(c=>c.id===s.childId)?.parentId)?.name} › {data.taskPlan!.children.find(c=>c.id===s.childId)?.name}</button><br/>本次实学 {(s.entry.actualHours??0).toFixed(2)}h · 子任务累计 {studyTotals(data.taskPlan!,s.childId).actual.toFixed(2)}h · 剩余 {studyTotals(data.taskPlan!,s.childId).remaining.toFixed(2)}h</span><Button small disabled={activeId===s.id} onClick={()=>studyAction(current=>({...current,taskPlan:{...current.taskPlan!,sessions:current.taskPlan!.sessions.map(x=>x.id===s.id?{...x,locked:!x.locked}:x)}}))}>{s.locked?'解锁':'锁定'}</Button><Button small disabled={s.locked||activeId===s.id} onClick={()=>studyAction(current=>withdrawStudy(current,s.id))}>撤回未执行部分</Button></div>)}</div></div>:null}
+        {dayOverlaps.length?<Callout tone="warning">当天有 {dayOverlaps.length} 处时段重叠（{dayOverlaps.slice(0,2).join('；')}）。<Button small onClick={()=>studyAction(current=>regenerateStudyDay(current,dayKey,activeId))}>从 09:00 整理未锁定安排</Button></Callout>:null}
         <DayView
-          data={data}
+          data={dayData}
           dateKey={dayKey}
           selectedId={selectedId}
           timer={timerApi.timer}
           now={timerApi.now}
           onToggleTimer={(taskId) => {
-            const existing = data.dayPlans[dayKey]?.[taskId]?.actualHours ?? 0;
+            const session=data.taskPlan?.sessions.find(s=>s.id===taskId);
+            if(session&&(session.withdrawn||data.taskPlan!.children.find(c=>c.id===session.childId)?.archived)){setStudyError('此项已保留为记录，请从待安排重新放入一天后再计时。');return;}
+            const existing = dayData.dayPlans[dayKey]?.[taskId]?.actualHours ?? data.dayMiscs[dayKey]?.find(m=>m.id===taskId)?.actualHours ?? 0;
             const paused = timerApi.toggle(taskId, dayKey, existing);
             if (paused) {
               writeActualHours(
@@ -783,6 +844,7 @@ export default function App() {
             }))
           }
           onRegenerate={() => {
+            if(data.taskPlan){try{const next=regenerateStudyDay(data,dayKey,activeId);commit(()=>next);return null;}catch(error){return error instanceof Error?error.message:String(error);}}
             const error = dayPlanCapacityError(data, dayKey);
             if (error) return error;
             commit((current) => {
@@ -809,12 +871,14 @@ export default function App() {
           }}
           onDragStart={() => commit((current) => current)}
         />
+        </>
       ) : null}
 
-      <AiPanel
-        data={data}
-        onApply={(action) => commit((current) => applySuggestion(current, action))}
-      />
+
+
+      {!data.taskPlan ? <AiPanel data={data} onApply={action=>commit(current=>applySuggestion(current,action))}/> : null}
+      {budgetRequest?<StudyBudgetDialog data={data} warning={budgetRequest.warning} onClose={()=>setBudgetRequest(null)} onChoose={choice=>{const request=budgetRequest;try{applyStudyBudgetChoice(data,request.action,choice,request.warning.extraHours);studyAction(current=>applyStudyBudgetChoice(current,request.action,choice,request.warning.extraHours));setBudgetRequest(null);}catch(error){if(error instanceof StudyBudgetWarning)setBudgetRequest({...request,warning:error});else setStudyError(error instanceof Error?error.message:String(error));}}}/>:null}
+      {budgetEditor&&data.taskPlan?<StudyTaskEditor data={data} parentId={budgetEditor} activeId={activeId} onClose={()=>setBudgetEditor(null)} onSave={apply=>{commit(apply);setBudgetEditor(null);}}/>:null}
 
       {exportText ? (
         <Modal title="导出给 Cursor / Codex" onClose={() => setExportText(null)} width={640}>

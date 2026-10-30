@@ -1,6 +1,6 @@
 import { spanWeeks, type Span, weekRangeLabel } from "../dateUtils";
-import { weekLoad, weekTotal } from "../schedule";
-import { colorOf } from "../theme";
+import { MISC_LOAD_ID, weekLoad, weekTotal } from "../schedule";
+import { colorOf, GRAY_ID } from "../theme";
 import type { PlannerData } from "../types";
 import { TodayLine } from "./GanttBar";
 
@@ -22,7 +22,8 @@ export function LoadChart({
   const to = Math.max(from, Math.min(totalWeeks - 1, weekTo));
   const weeks = Array.from({ length: to - from + 1 }, (_, index) => from + index);
   const totals = weeks.map((week) => weekTotal(data, week, span));
-  const max = Math.max(data.capacity, ...totals, 1);
+  const max = Math.max(data.studyReference?12:data.capacity, ...totals, 1);
+  const ceiling=data.studyReference?12:data.capacity;
 
   return (
     <div style={{ position: "relative", height: 152, paddingTop: 20 }}>
@@ -31,7 +32,7 @@ export function LoadChart({
           position: "absolute",
           left: 0,
           right: 0,
-          bottom: 22 + (data.capacity / max) * BAR_AREA,
+          bottom: 22 + (ceiling / max) * BAR_AREA,
           borderTop: "2px dashed var(--danger)",
           pointerEvents: "none",
           zIndex: 3,
@@ -48,10 +49,11 @@ export function LoadChart({
             padding: "0 4px",
           }}
         >
-          每日可用 {data.capacity}h
+          {data.studyReference ? "12h 红线" : `每日可用 ${data.capacity}h`}
         </span>
       </div>
 
+      {data.studyReference?<div style={{position:'absolute',left:0,right:0,bottom:22+(10/max)*BAR_AREA,borderTop:'1px dashed var(--accent)',pointerEvents:'none',zIndex:3}}><span className="small" style={{position:'absolute',left:0,top:-17,color:'var(--accent)',background:'var(--surface)',padding:'0 4px'}}>10h 理论</span></div>:null}
       <div
         style={{
           display: "grid",
@@ -63,7 +65,7 @@ export function LoadChart({
         {weeks.map((week, index) => {
           const total = totals[index];
           const load = weekLoad(data, week, span);
-          const over = total > data.capacity;
+          const over = total > ceiling;
           return (
             <div
               key={week}
@@ -103,6 +105,16 @@ export function LoadChart({
                     />
                   );
                 })}
+                {(load.get(MISC_LOAD_ID) ?? 0) > 0 ? (
+                  <div
+                    title="休息和其他清单事项"
+                    style={{
+                      height: `${((load.get(MISC_LOAD_ID) ?? 0) / total) * 100}%`,
+                      background: colorOf(GRAY_ID),
+                    }}
+                  />
+                ) : null}
+                {(load.get('__existing__')??0)>0?<div style={{height:`${(load.get('__existing__')??0)/total*100}%`,background:'var(--text-3)'}} title="已有记录或未关联安排"/>:null}
               </div>
               <span
                 className="small"

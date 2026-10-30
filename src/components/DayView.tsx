@@ -32,7 +32,7 @@ export function DayView({
   timer,
   now,
   onToggleTimer,
-  onSyncTimerHours: _onSyncTimerHours,
+  onSyncTimerHours,
   timerHoursOf,
   onDateShift,
   onSelect,
@@ -88,8 +88,8 @@ export function DayView({
   useEffect(() => {
     const runningId = timer?.running && timer.dateKey === dateKey ? timer.taskId : "";
     const ids = placedKey ? placedKey.split(",") : [];
-    setTimerTaskId((current) => runningId || (ids.includes(current) ? current : ids[0] ?? ""));
-  }, [dateKey, timer?.running, timer?.taskId, timer?.dateKey, placedKey]);
+    setTimerTaskId((current) => runningId || (selectedId&&ids.includes(selectedId)?selectedId:ids.includes(current) ? current : ids[0] ?? ""));
+  }, [dateKey, timer?.running, timer?.taskId, timer?.dateKey, placedKey, selectedId]);
   const hours = Array.from({ length: HOUR_END - HOUR_START }, (_, i) => HOUR_START + i);
   const miscs = data.dayMiscs[dateKey] ?? [];
   const arranged =
@@ -184,7 +184,7 @@ export function DayView({
           onClick={() => setPlanError(onRegenerate())}
           title="按当前各天用时重新铺排今天的时间轴"
         >
-          恢复默认排程
+          {data.taskPlan ? "从 09:00 整理安排" : "恢复默认排程"}
         </Button>
       </div>
       {planError || capacityError ? (
@@ -553,7 +553,7 @@ export function DayView({
                 const unit = taskUnit(task);
                 const budget = entryHours(entry);
                 const open = editId === task.id;
-                const showProgress = !(task.skipBreakdown && progress.source === "none" && progress.done <= 0);
+                const showProgress = progress.source !== "hours" && !(task.skipBreakdown && progress.source === "none" && progress.done <= 0);
                 return (
                   <div
                     key={task.id}
@@ -594,10 +594,13 @@ export function DayView({
                       >
                         {subject?.name} · {task.name}
                       </span>
-                      <span className="small muted-3" style={{ flexShrink: 0 }}>
+                      <span
+                        className="small"
+                        style={{ flexShrink: 0, fontWeight: 700, color: "var(--text)" }}
+                      >
                         实际 {formatDuration(actual)}
                       </span>
-                      <span className="small" style={{ flexShrink: 0, fontWeight: 600 }}>
+                      <span className="small" style={{ flexShrink: 0, fontWeight: 600, color: "var(--text-2)" }}>
                         预算 {formatDuration(budget)}
                       </span>
                       <Button
@@ -619,6 +622,12 @@ export function DayView({
                               end: Math.min(HOUR_END, snapSlot(entry.start + Math.max(SLOT_HOUR, hours))),
                             })
                           }
+                        />
+                        <DurationFields
+                          label="实学"
+                          hours={actual}
+                          title="实际计时或补记；只修改本次实际学习记录，并同步到任务进度"
+                          onChange={(hours)=>{onEntryChange(task.id,{actualHours:hours});onSyncTimerHours(task.id,hours);}}
                         />
                         {showProgress ? (
                           <div className="row" style={{ gap: 6 }}>
@@ -643,49 +652,86 @@ export function DayView({
                   </div>
                 );
               })}
-              {miscs.map((item) => (
-                <div
-                  key={item.id}
-                  className="row"
-                  onContextMenu={(event) => {
-                    event.preventDefault();
-                    setMiscMenu({ miscId: item.id, x: event.clientX, y: event.clientY });
-                  }}
-                  style={{
-                    gap: 7,
-                    padding: "4px 6px",
-                    borderRadius: 6,
-                    background: tint(item.colorId ?? GRAY_ID, 0.16),
-                    cursor: "context-menu",
-                  }}
-                >
-                  <input
-                    type="checkbox"
-                    checked={item.status === "done"}
-                    onChange={(event) =>
-                      onPatchMisc(item.id, {
-                        status: (event.target.checked ? "done" : "pending") as TaskStatus,
-                      })
-                    }
-                    style={{ width: 16, height: 16, flexShrink: 0, cursor: "pointer" }}
-                  />
-                  <input
-                    className="field-plain small"
-                    value={item.name}
-                    placeholder="事项名"
-                    onChange={(event) => onPatchMisc(item.id, { name: event.target.value })}
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      textDecoration: item.status === "done" ? "line-through" : "none",
-                      color: item.status === "done" ? "var(--text-3)" : "var(--text)",
+              {miscs.map((item) => {
+                const budget = Math.max(0, item.end - item.start);
+                const actual =
+                  typeof item.actualHours === "number" && item.actualHours > 0
+                    ? item.actualHours
+                    : item.status === "done"
+                      ? budget
+                      : 0;
+                const open = editId === item.id;
+                return (
+                  <div
+                    key={item.id}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      setMiscMenu({ miscId: item.id, x: event.clientX, y: event.clientY });
                     }}
-                  />
-                  <span className="small muted-3" style={{ flexShrink: 0 }}>
-                    {formatDuration(Math.max(0, item.end - item.start))}
-                  </span>
-                </div>
-              ))}
+                    style={{
+                      padding: "5px 6px",
+                      borderRadius: 6,
+                      background: tint(item.colorId ?? GRAY_ID, 0.16),
+                      cursor: "context-menu",
+                    }}
+                  >
+                    <div className="row" style={{ gap: 6 }}>
+                      <input
+                        type="checkbox"
+                        checked={item.status === "done"}
+                        onChange={(event) =>
+                          onPatchMisc(item.id, {
+                            status: (event.target.checked ? "done" : "pending") as TaskStatus,
+                          })
+                        }
+                        style={{ width: 16, height: 16, flexShrink: 0, cursor: "pointer" }}
+                      />
+                      <input
+                        className="field-plain small"
+                        value={item.name}
+                        placeholder="事项名"
+                        onChange={(event) => onPatchMisc(item.id, { name: event.target.value })}
+                        style={{
+                          flex: 1,
+                          minWidth: 0,
+                          textDecoration: item.status === "done" ? "line-through" : "none",
+                          color: item.status === "done" ? "var(--text-3)" : "var(--text)",
+                        }}
+                      />
+                      <span
+                        className="small"
+                        style={{ flexShrink: 0, fontWeight: 700, color: "var(--text)" }}
+                      >
+                        实际 {formatDuration(actual)}
+                      </span>
+                      <span className="small" style={{ flexShrink: 0, fontWeight: 600, color: "var(--text-2)" }}>
+                        预算 {formatDuration(budget)}
+                      </span>
+                      <Button
+                        small
+                        onClick={() => setEditId(open ? null : item.id)}
+                        title="编辑预算"
+                      >
+                        {open ? "收起" : "编辑"}
+                      </Button>
+                    </div>
+                    {open ? (
+                      <div style={{ marginTop: 8 }}>
+                        <DurationFields
+                          label="预算"
+                          hours={budget}
+                          title="跟左侧色块同步"
+                          onChange={(hours) =>
+                            onPatchMisc(item.id, {
+                              end: Math.min(HOUR_END, snapSlot(item.start + Math.max(SLOT_HOUR, hours))),
+                            })
+                          }
+                        />
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
               {tasks.length === 0 && miscs.length === 0 ? (
                 <span className="muted small">今天还没有清单事项</span>
               ) : null}
@@ -693,7 +739,7 @@ export function DayView({
                 <input
                   className="field"
                   value={miscDraft}
-                  placeholder=""
+                  placeholder="休息、吃饭或其他"
                   onChange={(event) => setMiscDraft(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") {

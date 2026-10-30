@@ -1,5 +1,14 @@
+import { parentStudyTotals, studyTotals } from './taskPlan';
 import { addDays, calendarKey } from "./dateUtils";
-import { coversDay, dayPlanOf, hoursOnDay, plannedHoursOf, subjectOf } from "./schedule";
+import {
+  coversDay,
+  dayMiscActualHours,
+  dayMiscHours,
+  dayPlanOf,
+  hoursOnDay,
+  plannedHoursOf,
+  subjectOf,
+} from "./schedule";
 import type { BreakdownItem, PlannerData, Task } from "./types";
 
 export type TaskRisk = "ok" | "tight" | "late";
@@ -9,7 +18,7 @@ export type TaskProgress = {
   done: number;
   remaining: number | null;
   unit: string;
-  source: "breakdown" | "rough" | "none";
+  source: "breakdown" | "rough" | "none" | "hours";
 };
 
 export const SUGGESTED_UNITS: Record<string, string> = {
@@ -108,6 +117,10 @@ export function volumeDone(data: PlannerData, task: Task): number {
 }
 
 export function taskProgress(data: PlannerData, task: Task): TaskProgress {
+  if(data.taskPlan?.parentBudgets[task.id]!=null){const t=parentStudyTotals(data,task.id);return {target:t.budget+t.extraBudget,done:t.actual,remaining:t.remaining,unit:'h投入',source:'hours'};}
+  const session=data.taskPlan?.sessions.find(s=>s.id===task.id);
+  if(session){const c=data.taskPlan!.children.find(c=>c.id===session.childId)!;const t=studyTotals(data.taskPlan!,c.id);return c.target?{target:c.target,done:t.amount,remaining:Math.max(0,c.target-t.amount),unit:c.unit??'项',source:'rough'}:{target:c.budget==null?null:c.budget+(c.extraBudget??0),done:t.actual,remaining:t.remaining,unit:'h投入',source:'hours'};}
+
   const unit = taskUnit(task);
   const target = volumeTarget(task);
   const done = volumeDone(data, task);
@@ -260,14 +273,15 @@ export function actualHoursOf(data: PlannerData, taskId: string, dateKey: string
 
 export function dayActualHours(data: PlannerData, dateKey: string): number {
   const plan = data.dayPlans[dateKey] ?? {};
-  return Object.values(plan).reduce((sum, entry) => {
+  const tasks = Object.values(plan).reduce((sum, entry) => {
     const hours = entry.actualHours;
     return sum + (typeof hours === "number" && !Number.isNaN(hours) ? Math.max(0, hours) : 0);
   }, 0);
+  return tasks + dayMiscActualHours(data, dateKey);
 }
 
 export function dayPlannedTaskHours(data: PlannerData, dateKey: string): number {
-  return data.tasks.reduce((sum, task) => sum + hoursOnDay(data, task, dateKey), 0);
+  return data.tasks.reduce((sum, task) => sum + hoursOnDay(data, task, dateKey), 0) + dayMiscHours(data, dateKey);
 }
 
 export type WeekReport = {
@@ -307,6 +321,10 @@ export function buildWeekReport(data: PlannerData, days: string[], today = calen
       if (typeof delta === "number" && delta > 0) {
         outputs.set(task.id, (outputs.get(task.id) ?? 0) + delta);
       }
+    }
+    for (const item of data.dayMiscs[dateKey] ?? []) {
+      slotCount += 1;
+      if (item.status === "done") doneCount += 1;
     }
   }
 
@@ -364,6 +382,8 @@ export function buildWeekReport(data: PlannerData, days: string[], today = calen
 }
 
 export function progressCaption(data: PlannerData, task: Task, today = calendarKey()): string {
+  if(data.taskPlan?.parentBudgets[task.id]!=null){const t=parentStudyTotals(data,task.id);const days=Math.max(1,remainingCoveredDays(task,today));return `预算 ${t.budget.toFixed(1)}h · 实学 ${t.actual.toFixed(1)}h · 剩余 ${t.remaining.toFixed(1)}h · 窗口内建议 ${(t.remaining/days).toFixed(1)}h/日`;}
+
   const progress = taskProgress(data, task);
   const pace = suggestedPace(data, task, today);
   const risk = taskRisk(data, task, today);
