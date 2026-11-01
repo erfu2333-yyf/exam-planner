@@ -130,7 +130,8 @@ export default function App() {
     catch(error){if(error instanceof StudyBudgetWarning){setBudgetRequest({action,warning:error});setStudyError(null);}else setStudyError(error instanceof Error?error.message:String(error));}
   };
   useEffect(()=>{
-    if(!hydrated || !data.taskPlan)return;
+    if(!hydrated || !workspace.profile)return;
+    if(!data.taskPlan){update(current=>createStudyPlan(current));return;}
     if(upgradeStudyCatalogue(data)!==data){update(current=>upgradeStudyCatalogue(current));return;}
     if(rolloverStudy(data,calendarKey(),activeId)===data)return;
     update(current=>rolloverStudy(current,calendarKey(),activeId));
@@ -646,7 +647,7 @@ export default function App() {
 
       {saveError ? <Callout tone="warning">{saveError}</Callout> : null}
       {studyError ? <Callout tone="warning">{studyError}<Button small onClick={()=>setStudyError(null)}>关闭</Button></Callout> : null}
-      {!data.taskPlan ? <div className="card study-progress"><strong>按任务预算安排剩余备考</strong><p className="small muted">采用六科 500h、新英语任务和政治五阶段。保留本周已有安排、未来已保存安排及所有历史记录；旧记录不擅自归入新任务。政治阶段一的读练预算需要你明确分配。</p><Button disabled={!hydrated || Boolean(activeId)} onClick={()=>{studyAction(current=>createStudyPlan(current));setFilterFrom(String(Math.max(1,weekOfIndex(dayIndex(calendarKey(),PLAN_ORIGIN))+1)));}}>启用任务预算与周历安排</Button></div> : view === "overview" ? <StudyProgress data={data} onEditBudget={setSubjectBudget}/> : null}
+      {!data.taskPlan ? <div className="card study-progress"><strong>按任务预算安排剩余备考</strong><p className="small muted">采用六科任务预算、新英语任务和政治五阶段。保留本周已有安排、未来已保存安排及所有历史记录；旧记录不擅自归入新任务。政治阶段一的读练预算需要你明确分配。</p><Button disabled={!hydrated || Boolean(activeId)} onClick={()=>{studyAction(current=>createStudyPlan(current));setFilterFrom(String(Math.max(1,weekOfIndex(dayIndex(calendarKey(),PLAN_ORIGIN))+1)));}}>启用任务预算与周历安排</Button></div> : view === "overview" ? <StudyProgress data={data} onEditBudget={setSubjectBudget}/> : null}
 
       {view === "overview" ? (
         <div>

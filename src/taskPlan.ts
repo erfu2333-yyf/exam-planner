@@ -27,7 +27,7 @@ export type StudyTask = {
 export type StudySession = { id: string; childId: string; date: string; entry: DayEntry; locked?: boolean; withdrawn?: boolean };
 export type TaskPlan = {
   version: 1;
-  methodRevision?: 1;
+  methodRevision?: 1 | 2;
   children: StudyTask[];
   sessions: StudySession[];
   parentBudgets: Record<string, number>;

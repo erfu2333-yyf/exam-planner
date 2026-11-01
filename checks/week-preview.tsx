@@ -25,7 +25,7 @@ assert.equal(repaired.running,false);
 const today=calendarKey();
 let data=createStudyPlan(structuredClone(INITIAL_DATA),today);
 data={...data,dayPlans:{},dayHours:{},weekTexts:{},dayMiscs:{}};
-assert.equal(Object.values(data.taskPlan!.parentBudgets).reduce((s,n)=>s+n,0),500);
+assert.equal(Object.values(data.taskPlan!.parentBudgets).reduce((s,n)=>s+n,0),498);
 data=scheduleStudy(data,'plan-reading-1',today,1);
 const id=data.taskPlan!.sessions[0].id;
 assert.equal(studyTotals(data.taskPlan!,'plan-reading-1').arranged,1);
@@ -143,13 +143,22 @@ for(const parentId of ['plan-topic-core','plan-topic-secondary','plan-topic-theo
 assert.deepEqual(parsePlanner(JSON.stringify(data)).taskPlan,JSON.parse(JSON.stringify(data.taskPlan)));
 assert.equal(data.taskPlan!.children.filter(c=>c.parentId.startsWith('plan-stat-')).length,3);
 assert.deepEqual(data.taskPlan!.children.filter(c=>c.parentId==='plan-method-high').map(c=>c.budget),[5,9,12,10,7,8]);
-assert.deepEqual(data.taskPlan!.children.filter(c=>c.parentId==='plan-method-low').map(c=>c.budget),[3,5,4,2,2,3,5]);
+assert.deepEqual(data.taskPlan!.children.filter(c=>c.parentId==='plan-method-low').map(c=>c.budget),[3,5,4,2,2,3,3]);
 assert.equal(upgradeStudyCatalogue(data),data);
 const legacyMethod={...data,tasks:[...data.tasks.filter(t=>!['plan-method-high','plan-method-low'].includes(t.id)),{...data.tasks.find(t=>t.id==='plan-method-high')!,id:'plan-method-core'}],taskPlan:{...data.taskPlan!,methodRevision:undefined,parentBudgets:{...data.taskPlan!.parentBudgets,'plan-method-core':75},children:[...data.taskPlan!.children.filter(c=>!c.id.startsWith('method-v2-')),{id:'old-ch4',parentId:'plan-method-core',name:'第4章 原名称',budget:5}],sessions:[{id:'old-session',childId:'old-ch4',date:today,locked:true,entry:{start:9,end:10,note:'keep',status:'pending' as const,actualHours:.5}}]}};
 const migrated=upgradeStudyCatalogue(legacyMethod);
 assert.deepEqual(migrated.taskPlan!.sessions,[{...legacyMethod.taskPlan.sessions[0],childId:'method-v2-4'}]);
 assert.equal(parentStudyTotals(migrated,'plan-method-high').actual,.5);
 assert.equal(upgradeStudyCatalogue(migrated),migrated);
+const revisionOne={...data,taskPlan:{...data.taskPlan!,methodRevision:1 as const,children:data.taskPlan!.children.map(c=>c.id==='method-v2-training'?{...c,budget:5}:c),parentBudgets:{...data.taskPlan!.parentBudgets,'plan-method-low':24}}};
+const revised=upgradeStudyCatalogue(revisionOne);
+assert.equal(revised.taskPlan!.parentBudgets['plan-method-low'],22);
+assert.equal(revised.taskPlan!.children.find(c=>c.id==='method-v2-training')!.budget,3);
+assert.equal(revised.tasks.filter(t=>t.id==='plan-method-high').length,1);
+assert.ok(!revised.taskPlan!.archivedParents.includes('plan-method-high'));
+const customSubject={...legacyMethod,subjects:legacyMethod.subjects.map(s=>s.id==='method'?{...s,id:'custom-method'}:s),tasks:legacyMethod.tasks.map(t=>t.subjectId==='method'?{...t,subjectId:'custom-method'}:t)};
+assert.equal(upgradeStudyCatalogue(customSubject).tasks.find(t=>t.id==='plan-method-high')!.subjectId,'custom-method');
+
 
 const changedBudget=resizeSubjectBudget(data,'stat',60);
 assert.equal(changedBudget.tasks.filter(t=>t.subjectId==='stat').reduce((n,t)=>n+(changedBudget.taskPlan!.parentBudgets[t.id]??0),0),60);
@@ -304,7 +313,7 @@ assert.equal(blocked.taskPlan!.children.find(c=>c.id==='plan-reading-0')!.extraB
 assert.throws(()=>applyStudyBudgetChoice(soft,current=>patchStudy(current,softId,{end:22}),'extra'),/12h/);
 assert.equal(soft.taskPlan!.sessions[0].entry.actualHours,undefined);
 console.log('Passed: budget overruns pause without mutation; pool transfer keeps parent demand unchanged; explicit one-off extra preserves original budget and increases reference demand; repeated overruns ask again; rest overlap and 12h remain hard boundaries.');
-console.log('Passed: 500h budget; default 1h; resize updates allocation only; actual rollup; withdraw preserves logs; locks; budget bounds; weekly time-axis rendering; no task dropdown; no global progress in week; Gantt budget/remaining labels.');
+console.log('Passed: 498h budget including revised 73h research methods; default 1h; resize updates allocation only; actual rollup; withdraw preserves logs; locks; budget bounds; weekly time-axis rendering; no task dropdown; no global progress in week; Gantt budget/remaining labels.');
 console.log('Passed: no overall-window rows in empty week; every date has a drop target; pointer move/up creates 1h allocation outside reference window; actual hours and quantity corrections roll back into child and parent totals.');
 console.log('Passed: child add/rename/reorder/budget edit synchronizes week/day/parent totals; latest timer data retained; removing a child preserves actual and quantity records; unused budgets released; active timer deletion rejected; unrecorded allocations removed; invalid budget reduction rejected.');
 console.log('Passed: explicit chapters split with original parent budgets intact; actual Gantt includes archived and legacy actuals, excludes planned hours, checkmarks, breaks and future logs; renamed module labels synchronize.');
