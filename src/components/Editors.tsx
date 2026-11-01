@@ -365,6 +365,7 @@ export function SubjectEditor({
   onSave,
   onDelete,
   onAddTask,
+  onEditBudget,
 }: {
   draft: SubjectDraft;
   taskCount: number;
@@ -372,6 +373,7 @@ export function SubjectEditor({
   onSave: (draft: SubjectDraft) => void;
   onDelete: (subjectId: string) => void;
   onAddTask: (subjectId: string) => void;
+  onEditBudget?: (subjectId:string)=>void;
 }) {
   const [value, setValue] = useState(draft);
   useEffect(() => setValue(draft), [draft]);
@@ -381,6 +383,7 @@ export function SubjectEditor({
   return (
     <Modal title={draft.id ? "管理一级任务" : "添加一级任务"} onClose={onClose} width={470}>
       <div className="stack" style={{ gap: 14 }}>
+        {draft.id&&onEditBudget?<Button onClick={()=>onEditBudget(draft.id!)}>调整科目总时间</Button>:null}
         <Field label="名称">
           <TextField value={value.name} onChange={(name) => patch({ name })} />
         </Field>

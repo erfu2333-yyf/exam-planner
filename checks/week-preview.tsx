@@ -1,3 +1,6 @@
+import { correctTaskTimer, timerElapsedMs } from '../src/timer';
+import { resizeSubjectBudget } from '../src/studyBudgetEditing';
+import { upgradeStudyCatalogue } from '../src/studyCatalogue';
 import { parsePlanner } from '../src/storage';
 import { StudyBudgetWarning } from '../src/studyBudgetWarning';
 import assert from 'node:assert/strict';
@@ -15,6 +18,10 @@ import { ActualStudyGantt } from '../src/components/ActualStudyGantt';
 import { OriginalWeekBoard } from '../src/components/OriginalWeekBoard';
 import { OverviewView } from '../src/components/OverviewView';
 
+const runaway={taskId:'record',dateKey:'2026-10-31',running:true,elapsedMs:0,startedAt:1};
+const repaired=correctTaskTimer(runaway,.5);
+assert.equal(timerElapsedMs(repaired,100000000),1800000);
+assert.equal(repaired.running,false);
 const today=calendarKey();
 let data=createStudyPlan(structuredClone(INITIAL_DATA),today);
 data={...data,dayPlans:{},dayHours:{},weekTexts:{},dayMiscs:{}};
@@ -123,7 +130,7 @@ const budgetInvalid={...editing,children:editing.children.map(c=>c.id==='plan-re
 assert.throws(()=>editStudyTasks(pointerData,budgetInvalid),/已有安排/);
 const editor=renderToStaticMarkup(<StudyTaskEditor data={pointerData} parentId="plan-reading" onSave={noop} onClose={noop}/>);
 assert.match(editor,/新增子任务/);assert.match(editor,/预算小时/);assert.match(editor,/预算分钟/);assert.match(editor,/上移/);assert.match(editor,/移出/);
-for(const [id,count] of [['plan-intro-core',6],['plan-intro-focus',6],['plan-method-core',7],['plan-method-specific',5],['plan-method-framework',11]] as const){
+for(const [id,count] of [['plan-intro-core',6],['plan-intro-focus',6]] as const){
   const chapters=data.taskPlan!.children.filter(c=>c.parentId===id);
   assert.equal(chapters.length,count);
   assert.ok(chapters.every(c=>c.budget===null),'Chapter budgets must not be silently divided.');
@@ -135,6 +142,25 @@ assert.ok(!data.tasks.some(t=>t.id==='plan-topic-organize'));
 for(const parentId of ['plan-topic-core','plan-topic-secondary','plan-topic-theory']){assert.ok(data.taskPlan!.children.some(c=>c.parentId===parentId&&c.budget===5));}
 assert.deepEqual(parsePlanner(JSON.stringify(data)).taskPlan,JSON.parse(JSON.stringify(data.taskPlan)));
 assert.equal(data.taskPlan!.children.filter(c=>c.parentId.startsWith('plan-stat-')).length,3);
+assert.deepEqual(data.taskPlan!.children.filter(c=>c.parentId==='plan-method-high').map(c=>c.budget),[5,9,12,10,7,8]);
+assert.deepEqual(data.taskPlan!.children.filter(c=>c.parentId==='plan-method-low').map(c=>c.budget),[3,5,4,2,2,3,5]);
+assert.equal(upgradeStudyCatalogue(data),data);
+const legacyMethod={...data,tasks:[...data.tasks.filter(t=>!['plan-method-high','plan-method-low'].includes(t.id)),{...data.tasks.find(t=>t.id==='plan-method-high')!,id:'plan-method-core'}],taskPlan:{...data.taskPlan!,methodRevision:undefined,parentBudgets:{...data.taskPlan!.parentBudgets,'plan-method-core':75},children:[...data.taskPlan!.children.filter(c=>!c.id.startsWith('method-v2-')),{id:'old-ch4',parentId:'plan-method-core',name:'第4章 原名称',budget:5}],sessions:[{id:'old-session',childId:'old-ch4',date:today,locked:true,entry:{start:9,end:10,note:'keep',status:'pending' as const,actualHours:.5}}]}};
+const migrated=upgradeStudyCatalogue(legacyMethod);
+assert.deepEqual(migrated.taskPlan!.sessions,[{...legacyMethod.taskPlan.sessions[0],childId:'method-v2-4'}]);
+assert.equal(parentStudyTotals(migrated,'plan-method-high').actual,.5);
+assert.equal(upgradeStudyCatalogue(migrated),migrated);
+
+const changedBudget=resizeSubjectBudget(data,'stat',60);
+assert.equal(changedBudget.tasks.filter(t=>t.subjectId==='stat').reduce((n,t)=>n+(changedBudget.taskPlan!.parentBudgets[t.id]??0),0),60);
+assert.equal(changedBudget.taskPlan!.children.filter(c=>c.parentId.startsWith('plan-stat-')).reduce((n,c)=>n+(c.budget??0),0),60);
+assert.deepEqual(changedBudget.taskPlan!.sessions,data.taskPlan!.sessions);
+const lowerBudget=resizeSubjectBudget(data,'stat',40);
+assert.equal(lowerBudget.taskPlan!.children.filter(c=>c.parentId.startsWith('plan-stat-')).reduce((n,c)=>n+(c.budget??0),0),40);
+assert.throws(()=>resizeSubjectBudget(data,'en',0));
+const corrected=patchStudy(data,data.taskPlan!.sessions[0].id,{actualHours:.1});
+assert.equal(studyTotals(corrected.taskPlan!,corrected.taskPlan!.sessions[0].childId).actual,.1);
+
 assert.ok(data.taskPlan!.children.some(c=>c.parentId==='plan-topic-core'&&c.name==='养老'));
 assert.ok(data.taskPlan!.children.some(c=>c.parentId==='plan-topic-core'&&c.name==='人口生育'));
 assert.equal(actualStudyModules(edited).find(m=>m.id==='plan-reading')!.daily[today],.25);
@@ -147,20 +173,20 @@ const actualGantt=renderToStaticMarkup(<ActualStudyGantt data={actualData} onDay
 assert.match(actualGantt,/实际复习记录甘特图/);assert.match(actualGantt,/按周复盘/);assert.match(actualGantt,/整体累计/);assert.match(actualGantt,/实学 0.25 小时/);
 let poolData=createStudyPlan(structuredClone(INITIAL_DATA),today);
 poolData={...poolData,dayPlans:{},dayHours:{},dayMiscs:{},weekTexts:{}};
-assert.equal(poolData.taskPlan!.children.find(c=>c.id==='plan-method-core-0')!.budget,null);
-assert.equal(studyAllocationAvailable(poolData,'plan-method-core-0').pool,35);
-poolData=scheduleStudy(poolData,'plan-method-core-0',today,1);
+assert.equal(poolData.taskPlan!.children.find(c=>c.id==='plan-intro-core-0')!.budget,null);
+assert.equal(studyAllocationAvailable(poolData,'plan-intro-core-0').pool,60);
+poolData=scheduleStudy(poolData,'plan-intro-core-0',today,1);
 const poolId=poolData.taskPlan!.sessions[0].id;
-assert.equal(poolData.taskPlan!.children.find(c=>c.id==='plan-method-core-0')!.budget,1);
-assert.equal(parentStudyTotals(poolData,'plan-method-core').remaining,35);
+assert.equal(poolData.taskPlan!.children.find(c=>c.id==='plan-intro-core-0')!.budget,1);
+assert.equal(parentStudyTotals(poolData,'plan-intro-core').remaining,60);
 poolData=resizeStudyAllocation(poolData,poolId,2);
-assert.equal(poolData.taskPlan!.children.find(c=>c.id==='plan-method-core-0')!.budget,2);
-assert.equal(studyAllocationAvailable(poolData,'plan-method-core-1').pool,33);
+assert.equal(poolData.taskPlan!.children.find(c=>c.id==='plan-intro-core-0')!.budget,2);
+assert.equal(studyAllocationAvailable(poolData,'plan-intro-core-1').pool,58);
 poolData=patchStudy(poolData,poolId,{end:12});
-assert.equal(poolData.taskPlan!.children.find(c=>c.id==='plan-method-core-0')!.budget,3);
-assert.equal(parentStudyTotals(poolData,'plan-method-core').remaining,35);
-assert.throws(()=>scheduleStudy(poolData,'plan-method-core-1',today,33),/12h/);
-assert.match(studyDropReason(poolData,'plan-method-core-0',addDays(today,-1))!,/过去/);
+assert.equal(poolData.taskPlan!.children.find(c=>c.id==='plan-intro-core-0')!.budget,3);
+assert.equal(parentStudyTotals(poolData,'plan-intro-core').remaining,60);
+assert.throws(()=>scheduleStudy(poolData,'plan-intro-core-1',today,58),/12h/);
+assert.match(studyDropReason(poolData,'plan-intro-core-0',addDays(today,-1))!,/过去/);
 const clickEvents=new EventTarget();let clickDropped=false,clickEnded=false,clickCaptured=false;
 const clickSource={button:0,clientX:10,clientY:10,pointerId:8,currentTarget:{setPointerCapture:()=>{clickCaptured=true;},hasPointerCapture:()=>clickCaptured,releasePointerCapture:()=>{clickCaptured=false;}} as unknown as Element};
 beginStudyPointerDrag(clickSource,{onHover:noop,onDrop:()=>{clickDropped=true;},onEnd:dragged=>{clickEnded=!dragged;}},{events:clickEvents as unknown as Window,hitTest:()=>target});
@@ -185,7 +211,7 @@ grouped={...grouped,dayPlans:{},dayHours:{},dayMiscs:{},weekTexts:{}};
 const originalSnapshot=JSON.stringify({plans:grouped.dayPlans,sessions:grouped.taskPlan!.sessions});
 const initialRef=studyOverviewData(grouped);
 assert.equal(initialRef.tasks.find(t=>t.id==='plan-reading')!.dailyHours,35/Math.max(1,initialRef.studyReference!.days.length));
-assert.ok(Math.max(...Object.values(initialRef.studyReference!.totals))<=10+.001);
+assert.ok(Math.max(...Object.values(initialRef.studyReference!.totals))<=12+.001);
 assert.ok(Object.values(initialRef.studyReference!.unplaced).every(h=>h<.001));
 assert.equal(JSON.stringify({plans:grouped.dayPlans,sessions:grouped.taskPlan!.sessions}),originalSnapshot);
 const shorter={...grouped,tasks:grouped.tasks.map(t=>t.id==='plan-reading'?{...t,startDate:today,endDate:addDays(today,6)}:t)};

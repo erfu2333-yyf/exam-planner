@@ -1,3 +1,4 @@
+import { upgradeStudyCatalogue } from './studyCatalogue';
 import { addDays, calendarKey, diffDays, snapSlot, weekStartKey, weekOfIndex, dayIndex, PLAN_ORIGIN } from './dateUtils';
 import { dayPlanOf } from './schedule';
 import type { DayEntry, PlannerData, Task } from './types';
@@ -26,6 +27,7 @@ export type StudyTask = {
 export type StudySession = { id: string; childId: string; date: string; entry: DayEntry; locked?: boolean; withdrawn?: boolean };
 export type TaskPlan = {
   version: 1;
+  methodRevision?: 1;
   children: StudyTask[];
   sessions: StudySession[];
   parentBudgets: Record<string, number>;
@@ -344,7 +346,7 @@ export function createStudyPlan(data: PlannerData, today=calendarKey()): Planner
     const separator=key.indexOf('|'),date=key.slice(separator+1),id=key.slice(0,separator);
     if(date>=today&&hours>0&&!dayPlans[date]?.[id]){const entry=dayPlanOf(data,date)[id];if(entry)dayPlans[date]={...dayPlans[date],[id]:entry};}
   }
-  return {...data,tasks:[...data.tasks,...parents],dayPlans,taskPlan:{version:1,children,sessions:[],parentBudgets,groupBudgets,archivedParents:data.tasks.map(t=>t.id)}};
+  return upgradeStudyCatalogue({...data,tasks:[...data.tasks,...parents],dayPlans,taskPlan:{version:1,children,sessions:[],parentBudgets,groupBudgets,archivedParents:data.tasks.map(t=>t.id)}});
 }
 
 export function moveStudy(data:PlannerData,id:string,date:string,start?:number):PlannerData{

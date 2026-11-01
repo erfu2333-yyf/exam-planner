@@ -1,3 +1,5 @@
+import { upgradeStudyCatalogue } from './studyCatalogue';
+import { SubjectBudgetEditor } from './components/SubjectBudgetEditor';
 import { AiPanel } from "./components/AiPanel";
 import { applySuggestion } from "./ai";
 import { StudyBudgetDialog } from './components/StudyBudgetDialog';
@@ -91,6 +93,7 @@ export default function App() {
 
   const [view, setView] = useState<ViewKey>("overview");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [subjectBudget,setSubjectBudget]=useState<string|null>(null);
   const [budgetEditor,setBudgetEditor] = useState<string|null>(null);
   const [budgetRequest,setBudgetRequest] = useState<{action:(data:PlannerData)=>PlannerData;warning:StudyBudgetWarning}|null>(null);
   const [studyError, setStudyError] = useState<string | null>(null);
@@ -127,7 +130,9 @@ export default function App() {
     catch(error){if(error instanceof StudyBudgetWarning){setBudgetRequest({action,warning:error});setStudyError(null);}else setStudyError(error instanceof Error?error.message:String(error));}
   };
   useEffect(()=>{
-    if(!hydrated || !data.taskPlan || rolloverStudy(data,calendarKey(),activeId)===data)return;
+    if(!hydrated || !data.taskPlan)return;
+    if(upgradeStudyCatalogue(data)!==data){update(current=>upgradeStudyCatalogue(current));return;}
+    if(rolloverStudy(data,calendarKey(),activeId)===data)return;
     update(current=>rolloverStudy(current,calendarKey(),activeId));
   },[data, today, activeId, update, hydrated]);
 
@@ -165,7 +170,7 @@ export default function App() {
 
   useEffect(() => {
     const running = timerApi.timer;
-    if (!running?.running) return;
+    if (!hydrated || !running?.running) return;
     const flush = () => {
       const live = timerApi.snapshot();
       if (!live) return;
@@ -176,13 +181,14 @@ export default function App() {
       if (document.hidden) flush();
     };
     document.addEventListener("visibilitychange", onHide);
-    window.addEventListener("pagehide", flush);
+    const onPageHide=()=>{const paused=timerApi.pause();if(paused)writeActualHours(paused.dateKey,paused.taskId,snapActualHours(paused.elapsedMs/3600000));};
+    window.addEventListener("pagehide", onPageHide);
     return () => {
       window.clearInterval(id);
       document.removeEventListener("visibilitychange", onHide);
-      window.removeEventListener("pagehide", flush);
+      window.removeEventListener("pagehide", onPageHide);
     };
-  }, [timerApi.timer?.running, timerApi.timer?.taskId, timerApi.timer?.dateKey]);
+  }, [timerApi.timer?.running, timerApi.timer?.taskId, timerApi.timer?.dateKey, hydrated]);
 
   useEffect(() => {
     if (data.taskPlan) return;
@@ -640,7 +646,7 @@ export default function App() {
 
       {saveError ? <Callout tone="warning">{saveError}</Callout> : null}
       {studyError ? <Callout tone="warning">{studyError}<Button small onClick={()=>setStudyError(null)}>关闭</Button></Callout> : null}
-      {!data.taskPlan ? <div className="card study-progress"><strong>按任务预算安排剩余备考</strong><p className="small muted">采用六科 500h、新英语任务和政治五阶段。保留本周已有安排、未来已保存安排及所有历史记录；旧记录不擅自归入新任务。政治阶段一的读练预算需要你明确分配。</p><Button disabled={!hydrated || Boolean(activeId)} onClick={()=>{studyAction(current=>createStudyPlan(current));setFilterFrom(String(Math.max(1,weekOfIndex(dayIndex(calendarKey(),PLAN_ORIGIN))+1)));}}>启用任务预算与周历安排</Button></div> : view === "overview" ? <StudyProgress data={data}/> : null}
+      {!data.taskPlan ? <div className="card study-progress"><strong>按任务预算安排剩余备考</strong><p className="small muted">采用六科 500h、新英语任务和政治五阶段。保留本周已有安排、未来已保存安排及所有历史记录；旧记录不擅自归入新任务。政治阶段一的读练预算需要你明确分配。</p><Button disabled={!hydrated || Boolean(activeId)} onClick={()=>{studyAction(current=>createStudyPlan(current));setFilterFrom(String(Math.max(1,weekOfIndex(dayIndex(calendarKey(),PLAN_ORIGIN))+1)));}}>启用任务预算与周历安排</Button></div> : view === "overview" ? <StudyProgress data={data} onEditBudget={setSubjectBudget}/> : null}
 
       {view === "overview" ? (
         <div>
@@ -878,7 +884,8 @@ export default function App() {
 
       {!data.taskPlan ? <AiPanel data={data} onApply={action=>commit(current=>applySuggestion(current,action))}/> : null}
       {budgetRequest?<StudyBudgetDialog data={data} warning={budgetRequest.warning} onClose={()=>setBudgetRequest(null)} onChoose={choice=>{const request=budgetRequest;try{applyStudyBudgetChoice(data,request.action,choice,request.warning.extraHours);studyAction(current=>applyStudyBudgetChoice(current,request.action,choice,request.warning.extraHours));setBudgetRequest(null);}catch(error){if(error instanceof StudyBudgetWarning)setBudgetRequest({...request,warning:error});else setStudyError(error instanceof Error?error.message:String(error));}}}/>:null}
-      {budgetEditor&&data.taskPlan?<StudyTaskEditor data={data} parentId={budgetEditor} activeId={activeId} onClose={()=>setBudgetEditor(null)} onSave={apply=>{commit(apply);setBudgetEditor(null);}}/>:null}
+      {subjectBudget&&data.taskPlan?<SubjectBudgetEditor data={data} subjectId={subjectBudget} onClose={()=>setSubjectBudget(null)} onSave={apply=>{apply(data);commit(apply);setSubjectBudget(null);}}/>:null}
+      {budgetEditor&&data.taskPlan?<StudyTaskEditor data={data} parentId={budgetEditor} activeId={activeId} onCorrectRecord={(id,hours)=>{const session=data.taskPlan!.sessions.find(s=>s.id===id);if(!session)return;patchStudy(data,id,{actualHours:hours});timerApi.syncHours(id,session.date,hours);update(current=>patchStudy(current,id,{actualHours:hours}));}} onClose={()=>setBudgetEditor(null)} onSave={apply=>{commit(apply);setBudgetEditor(null);}}/>:null}
 
       {exportText ? (
         <Modal title="导出给 Cursor / Codex" onClose={() => setExportText(null)} width={640}>
@@ -925,6 +932,7 @@ export default function App() {
       {subjectDraft ? (
         <SubjectEditor
           draft={subjectDraft}
+          onEditBudget={data.taskPlan?id=>{setSubjectDraft(null);setSubjectBudget(id);}:undefined}
           taskCount={data.tasks.filter((task) => task.subjectId === subjectDraft.id).length}
           onClose={() => setSubjectDraft(null)}
           onSave={saveSubject}

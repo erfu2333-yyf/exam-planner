@@ -72,6 +72,10 @@ function pauseTimer(timer: ActiveTimer, now = Date.now()): ActiveTimer {
   };
 }
 
+export function correctTaskTimer(current:ActiveTimer, hours:number):ActiveTimer {
+  return {...current,running:false,elapsedMs:Math.round(Math.max(0,hours)*3600000),startedAt:null};
+}
+
 export function useTaskTimer(spaceId: string | null) {
   const [timer, setTimer] = useState<ActiveTimer | null>(() => readTimer(spaceId));
   const [now, setNow] = useState(() => Date.now());
@@ -143,14 +147,19 @@ export function useTaskTimer(spaceId: string | null) {
   const syncHours = useCallback((taskId: string, dateKey: string, hours: number) => {
     const current = timerRef.current;
     if (!current || current.taskId !== taskId || current.dateKey !== dateKey) return;
-    const next: ActiveTimer = {
-      ...current,
-      elapsedMs: Math.round(Math.max(0, hours) * 3600000),
-      startedAt: current.running ? Date.now() : null,
-    };
+    const next = correctTaskTimer(current,hours);
     timerRef.current = next;
     setTimer(next);
-  }, []);
+    writeTimer(spaceId,next);
+  }, [spaceId]);
+
+  const pause = useCallback(() => {
+    const current=timerRef.current;
+    if(!current)return null;
+    const next=pauseTimer(current);
+    timerRef.current=next;setTimer(next);writeTimer(spaceId,next);
+    return next;
+  },[spaceId]);
 
   const hoursOf = useCallback(
     (taskId: string, dateKey: string, fallback = 0) => {
@@ -160,5 +169,5 @@ export function useTaskTimer(spaceId: string | null) {
     [timer, now],
   );
 
-  return { timer, now, toggle, snapshot, syncHours, hoursOf };
+  return { timer, now, toggle, snapshot, syncHours, hoursOf, pause };
 }

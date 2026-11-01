@@ -3,12 +3,16 @@ import { studyTotals, type StudyTask } from './taskPlan';
 import type { PlannerData } from './types';
 
 export type StudyChildEdit={id:string;name:string;budget:number|null;target?:number;unit?:string;done?:boolean};
-export type StudyTaskEdit={parentId:string;name:string;children:StudyChildEdit[]};
+export type StudyTaskEdit={parentId:string;name:string;children:StudyChildEdit[];budget?:number};
 
 /** Apply list edits to the latest data; session IDs and actual records never get regenerated. */
 export function editStudyTasks(data:PlannerData,edit:StudyTaskEdit,activeSessionId?:string):PlannerData{
-  const plan=data.taskPlan!;
+  let plan=data.taskPlan!;
   if(plan.parentBudgets[edit.parentId]==null)throw new Error('二级任务不存在。');
+  if(edit.budget!=null){
+    if(!Number.isFinite(edit.budget)||edit.budget<0)throw new Error('总预算必须为非负小时数。');
+    plan={...plan,parentBudgets:{...plan.parentBudgets,[edit.parentId]:edit.budget}};
+  }
   if(!edit.name.trim())throw new Error('二级任务名称不能为空。');
   const ids=new Set<string>();const revised:StudyTask[]=[];
   for(const input of edit.children){
